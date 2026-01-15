@@ -39,6 +39,10 @@ export interface PDFItem {
 	thumbnail?: string;
 	// Type indicator
 	isImage?: boolean; // true if this is an image file (for images-to-pdf)
+	// Desktop (Tauri) mode - native file paths
+	filePath?: string; // Native file path (for Tauri desktop app)
+	outputPath?: string; // Output file path after processing
+	outputPaths?: string[]; // Multiple output paths (for split)
 }
 
 export interface PDFSettings {
@@ -279,7 +283,7 @@ function createPDFStore() {
 			return settings;
 		},
 
-		// Add files
+		// Add files (web mode - File objects)
 		async addFiles(files: FileList | File[]) {
 			const fileArray = Array.from(files);
 			const currentTool = settings.tool;
@@ -298,6 +302,42 @@ function createPDFStore() {
 					name: file.name,
 					originalSize: file.size,
 					originalUrl: URL.createObjectURL(file),
+					status: 'pending',
+					progress: 0,
+					order: items.length,
+					isImage
+				};
+
+				items = [...items, item];
+			}
+		},
+
+		// Add files from paths (desktop/Tauri mode)
+		async addFilesFromPaths(paths: string[]) {
+			const currentTool = settings.tool;
+			
+			for (const filePath of paths) {
+				const fileName = filePath.split(/[/\\]/).pop() || 'file';
+				const ext = fileName.split('.').pop()?.toLowerCase() || '';
+				const isPDF = ext === 'pdf';
+				const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+				
+				// Validate file type based on current tool
+				if (currentTool === 'images-to-pdf' && !isImage) continue;
+				if (currentTool !== 'images-to-pdf' && !isPDF) continue;
+
+				// Create a placeholder File object for compatibility
+				// The actual file operations will use filePath in Tauri mode
+				const placeholderBlob = new Blob([], { type: isPDF ? 'application/pdf' : `image/${ext}` });
+				const placeholderFile = new File([placeholderBlob], fileName, { type: placeholderBlob.type });
+
+				const item: PDFItem = {
+					id: crypto.randomUUID(),
+					file: placeholderFile,
+					filePath, // Store the native path for Tauri
+					name: fileName,
+					originalSize: 0, // Will be updated when file is read
+					originalUrl: '', // Not available for native paths
 					status: 'pending',
 					progress: 0,
 					order: items.length,

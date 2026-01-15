@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { Upload, FileText, Image } from 'lucide-svelte';
+	import { Upload, FileText, Image, FolderOpen } from 'lucide-svelte';
 	import { pdfs, TOOLS } from '$lib/stores/pdfs.svelte';
+	import { isTauri } from '$lib/utils/platform';
+	import { onMount } from 'svelte';
 
 	let isDragging = $state(false);
 	let fileInput: HTMLInputElement;
+	let isDesktop = $state(false);
 
 	const currentTool = $derived(TOOLS.find(t => t.value === pdfs.settings.tool));
 	const acceptedFormats = $derived(currentTool?.accepts || '.pdf');
@@ -19,6 +22,10 @@
 			  ]
 			: [{ name: 'PDF', color: 'from-sky-500 to-cyan-500' }]
 	);
+
+	onMount(() => {
+		isDesktop = isTauri();
+	});
 
 	function handleDragEnter(e: DragEvent) {
 		e.preventDefault();
@@ -58,8 +65,27 @@
 		input.value = '';
 	}
 
-	function openFilePicker() {
-		fileInput?.click();
+	async function openFilePicker() {
+		if (isDesktop) {
+			// Use native file dialog in Tauri
+			try {
+				const { selectPDFFiles, selectImageFiles } = await import('$lib/utils/tauri-pdf');
+				const paths = isImageTool 
+					? await selectImageFiles()
+					: await selectPDFFiles();
+				
+				if (paths && paths.length > 0) {
+					await pdfs.addFilesFromPaths(paths);
+				}
+			} catch (err) {
+				console.error('Failed to open native dialog:', err);
+				// Fall back to HTML input
+				fileInput?.click();
+			}
+		} else {
+			// Use HTML file input in browser
+			fileInput?.click();
+		}
 	}
 </script>
 

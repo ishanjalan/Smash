@@ -1,18 +1,23 @@
 /**
  * PDF Processing Utilities
  * 
- * All processing happens 100% client-side - files never leave the browser.
- * Uses pdf-lib for manipulation and compression, PDF.js for rendering.
+ * Hybrid processing: Uses native Ghostscript/qpdf in Tauri desktop app,
+ * falls back to pdf-lib in web browser. Files never leave your device.
  */
 
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import { pdfs, type PDFItem, type ImageFormat, type CompressionPreset } from '$lib/stores/pdfs.svelte';
+import { isTauri } from './platform';
+import * as tauriPdf from './tauri-pdf';
 
 // Configure PDF.js worker - use unpkg which has all versions
 if (typeof window !== 'undefined') {
 	pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
+
+// Re-export Tauri utilities for direct access
+export { selectPDFFiles, selectImageFiles, selectSaveLocation, selectDirectory } from './tauri-pdf';
 
 // ============================================
 // PDF COMPRESSION (Using pdf-lib optimization)
