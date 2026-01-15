@@ -22,7 +22,7 @@
         "center": true,
         "decorations": true,
         "transparent": false,
-        "fileDropEnabled": true
+        "dragDropEnabled": true
       }
     ],
     "security": {
@@ -52,13 +52,8 @@
       "timestampUrl": "",
       "wix": null,
       "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "headerImage": null,
-        "sidebarImage": null,
-        "license": null,
         "installMode": "currentUser",
-        "languages": ["English"],
-        "displayLanguageSelector": false
+        "languages": ["English"]
       }
     },
     "macOS": {
