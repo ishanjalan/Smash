@@ -2,55 +2,28 @@
 	import Header from '$lib/components/Header.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import DropZone from '$lib/components/DropZone.svelte';
-	import PDFList from '$lib/components/PDFList.svelte';
 	import ToolSelector from '$lib/components/ToolSelector.svelte';
+	import Workspace from '$lib/components/Workspace.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
-	import BatchSummary from '$lib/components/BatchSummary.svelte';
 	import Toast, { toast } from '$lib/components/Toast.svelte';
 	import { pdfs, formatBytes, TOOLS } from '$lib/stores/pdfs.svelte';
 	import { downloadAllAsZip } from '$lib/utils/download';
 	import {
-		Download,
-		Trash2,
-		FileText,
-		Zap,
 		Shield,
+		Zap,
 		Layers,
-		ArrowDown,
-		Keyboard,
-		Minimize2,
-		Scissors,
-		Image,
 		Lock,
 		Github,
-		ExternalLink
+		ExternalLink,
+		Keyboard
 	} from 'lucide-svelte';
 	import { fade, fly } from 'svelte/transition';
-	import { onMount } from 'svelte';
 
 	let showClearConfirm = $state(false);
 	let showShortcuts = $state(false);
-	let showBatchSummary = $state(true);
 
 	const hasItems = $derived(pdfs.items.length > 0);
-	const completedCount = $derived(pdfs.items.filter((i) => i.status === 'completed').length);
-	const totalSaved = $derived(
-		pdfs.items
-			.filter((i) => i.status === 'completed' && i.processedSize)
-			.reduce((acc, i) => acc + (i.originalSize - (i.processedSize || 0)), 0)
-	);
-	const savingsPercent = $derived(
-		pdfs.items.length > 0
-			? Math.round(
-					(totalSaved /
-						pdfs.items
-							.filter((i) => i.status === 'completed')
-							.reduce((acc, i) => acc + i.originalSize, 0)) *
-						100
-				) || 0
-			: 0
-	);
 
 	function showNotification(message: string, type: 'success' | 'error' | 'info' = 'info') {
 		if (type === 'success') {
@@ -171,151 +144,107 @@
 <div class="flex min-h-screen flex-col">
 	<Header />
 
-	<main class="flex-1 px-4 sm:px-6 lg:px-8 pt-24 pb-12">
-		<div class="mx-auto max-w-7xl">
-			<!-- Hero Section -->
-			{#if !hasItems}
-				<div class="text-center mb-12" in:fade={{ duration: 300 }}>
-					<!-- Privacy badge -->
-					<div class="flex justify-center mb-6" in:fly={{ y: -10, duration: 400 }}>
-						<div class="privacy-badge">
-							<Shield class="h-3.5 w-3.5" />
-							<span>Privacy-First • Free & Open Source</span>
-						</div>
-					</div>
-
-					<h1
-						class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
-						in:fly={{ y: 20, duration: 500 }}
-					>
-						<span class="gradient-text">World-Class</span>
-						<br />
-						<span class="text-surface-100">PDF Tools</span>
-					</h1>
-					<p class="mx-auto max-w-2xl text-base sm:text-lg text-surface-500 leading-relaxed mb-4">
-						Compress, merge, split, protect, and convert PDFs entirely in your browser.
-						<span class="font-medium text-surface-300">100% private</span>
-						— files never leave your device.
-					</p>
-					<p class="text-sm text-surface-600">
-						Powered by Ghostscript WASM • Preserves text & quality
-					</p>
-				</div>
-			{/if}
-
-			<!-- Tool Selector -->
-			<div class="mb-6">
-				<ToolSelector />
-			</div>
-
-			<!-- Drop Zone -->
-			<div class="mb-8">
-				<DropZone />
-			</div>
-
-			<!-- File List -->
+	<main class="flex-1 px-4 sm:px-6 lg:px-8 pt-20 pb-4">
+		<div class="mx-auto max-w-7xl h-full">
 			{#if hasItems}
-				<div class="mb-8" in:fade={{ duration: 200 }}>
-					<!-- Summary bar -->
-					<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-						<div class="flex items-center gap-4">
-							<span class="text-sm text-surface-400">
-								{pdfs.items.length} file{pdfs.items.length !== 1 ? 's' : ''}
-							</span>
-							{#if completedCount > 0 && totalSaved > 0}
-								<span
-									class="text-sm font-medium {savingsPercent > 0 ? 'text-green-400' : 'text-amber-400'}"
-								>
-									{savingsPercent > 0 ? '-' : '+'}{Math.abs(savingsPercent)}% ({formatBytes(Math.abs(totalSaved))})
-								</span>
-							{/if}
+				<!-- Workspace Mode: Full-height document editor layout -->
+				<div 
+					class="h-[calc(100vh-120px)]"
+					in:fade={{ duration: 200 }}
+				>
+					<Workspace />
+				</div>
+			{:else}
+				<!-- Landing Mode: Hero + Drop zone -->
+				<div class="py-8" in:fade={{ duration: 300 }}>
+					<!-- Hero Section -->
+					<div class="text-center mb-12">
+						<!-- Privacy badge -->
+						<div class="flex justify-center mb-6" in:fly={{ y: -10, duration: 400 }}>
+							<div class="privacy-badge">
+								<Shield class="h-3.5 w-3.5" />
+								<span>Privacy-First • Free & Open Source</span>
+							</div>
 						</div>
 
-						<div class="flex items-center gap-2">
-							{#if completedCount > 0}
-								<button
-									onclick={handleDownloadAll}
-									class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-surface-300 hover:text-surface-100 transition-colors"
-								>
-									<Download class="h-4 w-4" />
-									<span class="hidden sm:inline">Download All</span>
-								</button>
-							{/if}
-
-							<button
-								onclick={() => (showClearConfirm = true)}
-								class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-surface-400 hover:text-red-400 transition-colors"
-							>
-								<Trash2 class="h-4 w-4" />
-								<span class="hidden sm:inline">Clear</span>
-							</button>
-						</div>
+						<h1
+							class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
+							in:fly={{ y: 20, duration: 500 }}
+						>
+							<span class="gradient-text">World-Class</span>
+							<br />
+							<span class="text-surface-100">PDF Tools</span>
+						</h1>
+						<p class="mx-auto max-w-2xl text-base sm:text-lg text-surface-500 leading-relaxed mb-4">
+							Compress, merge, split, protect, and convert PDFs entirely in your browser.
+							<span class="font-medium text-surface-300">100% private</span>
+							— files never leave your device.
+						</p>
+						<p class="text-sm text-surface-600">
+							Powered by Ghostscript WASM • Preserves text & quality
+						</p>
 					</div>
 
-					<PDFList />
+					<!-- Tool Selector -->
+					<div class="mb-6">
+						<ToolSelector />
+					</div>
 
-					<!-- Batch Summary (after processing) -->
-					{#if completedCount > 0 && showBatchSummary}
-						<div class="mt-6">
-							<BatchSummary onDismiss={() => showBatchSummary = false} />
-						</div>
-					{/if}
-				</div>
-			{/if}
+					<!-- Drop Zone -->
+					<div class="mb-12">
+						<DropZone />
+					</div>
 
-			<!-- Features Section (when no files) -->
-			{#if !hasItems}
-				<div
-					class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4 mt-16"
-					in:fly={{ y: 20, duration: 500, delay: 200 }}
-				>
-					{#each features as feature}
-						<div class="glass rounded-2xl p-6 text-center feature-card">
-							<div
-								class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent-start/20 to-accent-end/20"
-							>
-								<feature.icon class="h-6 w-6 text-accent-start" />
-							</div>
-							<h3 class="font-semibold text-surface-200 mb-2">{feature.title}</h3>
-							<p class="text-sm text-surface-500">{feature.description}</p>
-						</div>
-					{/each}
-				</div>
-
-				<!-- Open source link -->
-				<div class="flex justify-center mt-12">
-					<a
-						href="https://github.com/ishanjalan/Smash"
-						target="_blank"
-						rel="noopener noreferrer"
-						class="inline-flex items-center gap-2 px-4 py-2 text-sm text-surface-500 hover:text-surface-300 transition-colors"
+					<!-- Features Section -->
+					<div
+						class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4"
+						in:fly={{ y: 20, duration: 500, delay: 200 }}
 					>
-						<Github class="h-4 w-4" />
-						<span>View on GitHub</span>
-						<ExternalLink class="h-3 w-3" />
-					</a>
-				</div>
+						{#each features as feature}
+							<div class="glass rounded-2xl p-6 text-center feature-card">
+								<div
+									class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent-start/20 to-accent-end/20"
+								>
+									<feature.icon class="h-6 w-6 text-accent-start" />
+								</div>
+								<h3 class="font-semibold text-surface-200 mb-2">{feature.title}</h3>
+								<p class="text-sm text-surface-500">{feature.description}</p>
+							</div>
+						{/each}
+					</div>
 
-				<!-- Scroll hint -->
-				<div class="flex justify-center mt-8 text-surface-600 animate-float">
-					<ArrowDown class="h-6 w-6" />
+					<!-- Open source link -->
+					<div class="flex justify-center mt-12">
+						<a
+							href="https://github.com/ishanjalan/Smash"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="inline-flex items-center gap-2 px-4 py-2 text-sm text-surface-500 hover:text-surface-300 transition-colors"
+						>
+							<Github class="h-4 w-4" />
+							<span>View on GitHub</span>
+							<ExternalLink class="h-3 w-3" />
+						</a>
+					</div>
 				</div>
 			{/if}
-
-			<!-- Keyboard shortcut hint -->
-			<div class="fixed bottom-4 right-4 z-40">
-				<button
-					onclick={() => (showShortcuts = true)}
-					class="glass flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-surface-500 hover:text-surface-300 transition-colors"
-				>
-					<Keyboard class="h-4 w-4" />
-					<span class="hidden sm:inline">Press ? for shortcuts</span>
-				</button>
-			</div>
 		</div>
 	</main>
 
-	<Footer />
+	{#if !hasItems}
+		<Footer />
+	{/if}
+</div>
+
+<!-- Keyboard shortcut hint -->
+<div class="fixed bottom-4 right-4 z-40">
+	<button
+		onclick={() => (showShortcuts = true)}
+		class="glass flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-surface-500 hover:text-surface-300 transition-colors"
+	>
+		<Keyboard class="h-4 w-4" />
+		<span class="hidden sm:inline">Press ? for shortcuts</span>
+	</button>
 </div>
 
 <!-- Modals -->
