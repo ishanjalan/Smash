@@ -6,6 +6,7 @@
 	import Workspace from '$lib/components/Workspace.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
+	import SetupWizard from '$lib/components/SetupWizard.svelte';
 	import Toast, { toast } from '$lib/components/Toast.svelte';
 	import { pdfs, formatBytes, TOOLS } from '$lib/stores/pdfs.svelte';
 	import { downloadAllAsZip } from '$lib/utils/download';
@@ -176,12 +177,12 @@
 							<span class="text-surface-100">PDF Tools</span>
 						</h1>
 						<p class="mx-auto max-w-2xl text-base sm:text-lg text-surface-500 leading-relaxed mb-4">
-							Compress, merge, split, protect, and convert PDFs entirely in your browser.
+							Compress, merge, split, protect, and convert PDFs entirely on your device.
 							<span class="font-medium text-surface-300">100% private</span>
-							— files never leave your device.
+							— files never leave your computer.
 						</p>
 						<p class="text-sm text-surface-600">
-							Powered by Ghostscript WASM • Preserves text & quality
+							Powered by Ghostscript • Preserves text & quality
 						</p>
 					</div>
 
@@ -260,5 +261,7 @@
 />
 
 <KeyboardShortcuts bind:show={showShortcuts} />
+
+<SetupWizard />
 
 <Toast />
