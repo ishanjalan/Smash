@@ -7,6 +7,7 @@
   ],
   "permissions": [
     "core:default",
+    "core:path:default",
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
@@ -22,6 +23,14 @@
     "fs:allow-rename",
     "fs:allow-exists",
     "fs:allow-stat",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$APPDATA/**",
+        "$TEMP/**",
+        "$HOME/**"
+      ]
+    },
     "shell:default",
     "shell:allow-open"
   ]

@@ -43,13 +43,17 @@ export async function checkGhostscript(): Promise<ToolStatus> {
 	}
 	
 	try {
-		const result = await invoke<ToolStatus>('check_ghostscript');
-		_ghostscriptAvailable = result.available;
-		if (result.available) {
+		// Rust command returns the path as a string on success
+		const path = await invoke<string>('check_ghostscript');
+		_ghostscriptAvailable = true;
+		try {
 			_ghostscriptVersion = await invoke<string>('get_ghostscript_version');
+		} catch {
+			_ghostscriptVersion = null;
 		}
-		return { ...result, version: _ghostscriptVersion || undefined };
-	} catch {
+		return { available: true, path, version: _ghostscriptVersion || undefined };
+	} catch (err) {
+		console.error('Ghostscript check failed:', err);
 		_ghostscriptAvailable = false;
 		return { available: false };
 	}
@@ -64,10 +68,12 @@ export async function checkQPDF(): Promise<ToolStatus> {
 	}
 	
 	try {
-		const result = await invoke<ToolStatus>('check_qpdf');
-		_qpdfAvailable = result.available;
-		return result;
-	} catch {
+		// Rust command returns the path as a string on success
+		const path = await invoke<string>('check_qpdf');
+		_qpdfAvailable = true;
+		return { available: true, path };
+	} catch (err) {
+		console.error('qpdf check failed:', err);
 		_qpdfAvailable = false;
 		return { available: false };
 	}
@@ -93,13 +99,23 @@ export async function getBackendInfo(): Promise<{
 
 async function getTempPath(prefix: string): Promise<string> {
 	const tempDir = await appDataDir();
-	return `${tempDir}${prefix}_${Date.now()}.pdf`;
+	// Ensure trailing slash
+	const dir = tempDir.endsWith('/') || tempDir.endsWith('\\') ? tempDir : `${tempDir}/`;
+	return `${dir}${prefix}_${Date.now()}.pdf`;
 }
 
 async function writeTemp(file: File, prefix: string): Promise<string> {
 	const path = await getTempPath(prefix);
 	const arrayBuffer = await file.arrayBuffer();
-	await writeFile(path, new Uint8Array(arrayBuffer));
+	try {
+		await writeFile(path, new Uint8Array(arrayBuffer));
+	} catch (err) {
+		// Directory might not exist, try to create it
+		const { mkdir } = await import('@tauri-apps/plugin-fs');
+		const dir = path.substring(0, path.lastIndexOf('/'));
+		await mkdir(dir, { recursive: true });
+		await writeFile(path, new Uint8Array(arrayBuffer));
+	}
 	return path;
 }
 
@@ -147,16 +163,25 @@ export async function compressPDF(
 	try {
 		onProgress?.(20);
 		
-		const result = await invoke<{
-			output_path: string;
-			original_size: number;
-			compressed_size: number;
-			savings_percent: number;
-		}>('compress_pdf', {
-			inputPath,
-			outputPath,
-			preset
-		});
+		let result;
+		try {
+			result = await invoke<{
+				output_path: string;
+				original_size: number;
+				compressed_size: number;
+				savings_percent: number;
+			}>('compress_pdf', {
+				inputPath,
+				outputPath,
+				preset
+			});
+		} catch (invokeError) {
+			// Tauri errors come as strings
+			const errorMsg = typeof invokeError === 'string' 
+				? invokeError 
+				: (invokeError as Error)?.message || 'Compression failed';
+			throw new Error(`Ghostscript compression failed: ${errorMsg}`);
+		}
 		
 		onProgress?.(90);
 		
@@ -880,9 +905,18 @@ async function processItem(item: PDFItem) {
 		}
 	} catch (error) {
 		console.error('Processing error:', error);
+		// Handle both Error objects and Tauri error strings
+		let errorMessage = 'Processing failed';
+		if (error instanceof Error) {
+			errorMessage = error.message;
+		} else if (typeof error === 'string') {
+			errorMessage = error;
+		} else if (error && typeof error === 'object' && 'message' in error) {
+			errorMessage = String((error as { message: unknown }).message);
+		}
 		pdfs.updateItem(item.id, {
 			status: 'error',
-			error: error instanceof Error ? error.message : 'Processing failed'
+			error: errorMessage
 		});
 	}
 }
