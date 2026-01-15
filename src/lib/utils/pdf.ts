@@ -9,15 +9,81 @@ import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import { pdfs, type PDFItem, type ImageFormat, type CompressionPreset } from '$lib/stores/pdfs.svelte';
 import { isTauri } from './platform';
-import * as tauriPdf from './tauri-pdf';
 
 // Configure PDF.js worker - use unpkg which has all versions
 if (typeof window !== 'undefined') {
 	pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
-// Re-export Tauri utilities for direct access
-export { selectPDFFiles, selectImageFiles, selectSaveLocation, selectDirectory } from './tauri-pdf';
+// ============================================
+// TAURI INTEGRATION - Native tool availability
+// ============================================
+
+let _ghostscriptAvailable: boolean | null = null;
+let _qpdfAvailable: boolean | null = null;
+
+/**
+ * Check if native Ghostscript is available (desktop only)
+ */
+async function isGhostscriptAvailable(): Promise<boolean> {
+	if (!isTauri()) return false;
+	if (_ghostscriptAvailable !== null) return _ghostscriptAvailable;
+	
+	try {
+		const { checkGhostscript } = await import('./tauri-pdf');
+		const result = await checkGhostscript();
+		_ghostscriptAvailable = result.available;
+		return result.available;
+	} catch {
+		_ghostscriptAvailable = false;
+		return false;
+	}
+}
+
+/**
+ * Check if native qpdf is available (desktop only)
+ */
+async function isQpdfAvailable(): Promise<boolean> {
+	if (!isTauri()) return false;
+	if (_qpdfAvailable !== null) return _qpdfAvailable;
+	
+	try {
+		const { checkQPDF } = await import('./tauri-pdf');
+		const result = await checkQPDF();
+		_qpdfAvailable = result.available;
+		return result.available;
+	} catch {
+		_qpdfAvailable = false;
+		return false;
+	}
+}
+
+/**
+ * Get backend info for UI display
+ */
+export async function getBackendInfo(): Promise<{
+	platform: 'desktop' | 'web';
+	ghostscript: boolean;
+	qpdf: boolean;
+	ghostscriptVersion?: string;
+}> {
+	const platform = isTauri() ? 'desktop' : 'web';
+	const ghostscript = await isGhostscriptAvailable();
+	const qpdf = await isQpdfAvailable();
+	
+	let ghostscriptVersion: string | undefined;
+	if (ghostscript) {
+		try {
+			const { getGhostscriptVersion } = await import('./tauri-pdf');
+			ghostscriptVersion = await getGhostscriptVersion() || undefined;
+		} catch {}
+	}
+	
+	return { platform, ghostscript, qpdf, ghostscriptVersion };
+}
+
+// Re-export platform utilities
+export { isTauri } from './platform';
 
 // ============================================
 // PDF COMPRESSION (Using pdf-lib optimization)
@@ -45,12 +111,91 @@ const PRESET_QUALITY: Record<CompressionPreset, number> = {
 };
 
 /**
- * Compress PDF by optimizing structure and downsampling images
- * Note: For best results with complex PDFs, a server-side solution
- * like Ghostscript would be ideal. This client-side approach provides
- * moderate compression by re-encoding the PDF structure.
+ * Compress PDF - uses native Ghostscript on desktop (50-90% reduction),
+ * falls back to pdf-lib optimization in browser (10-30% reduction).
  */
 export async function compressPDF(
+	file: File,
+	options: CompressOptions
+): Promise<Blob> {
+	const { preset = 'ebook', onProgress } = options;
+	
+	// Check if we can use native Ghostscript (much better compression)
+	const useNative = await isGhostscriptAvailable();
+	
+	if (useNative && isTauri()) {
+		return compressPDFNative(file, options);
+	} else {
+		return compressPDFWeb(file, options);
+	}
+}
+
+/**
+ * Native compression using Ghostscript (desktop only)
+ * Provides 50-90% size reduction while preserving text selectability
+ */
+async function compressPDFNative(
+	file: File,
+	options: CompressOptions
+): Promise<Blob> {
+	const { preset = 'ebook', onProgress } = options;
+	
+	onProgress?.(5);
+	
+	// For Tauri, we need to save the file temporarily and use native path
+	// This is a workaround since Tauri commands work with file paths
+	const { invoke } = await import('@tauri-apps/api/core');
+	const { appDataDir } = await import('@tauri-apps/api/path');
+	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
+	
+	onProgress?.(10);
+	
+	// Get temp directory and create temp file paths
+	const tempDir = await appDataDir();
+	const inputPath = `${tempDir}temp_input_${Date.now()}.pdf`;
+	const outputPath = `${tempDir}temp_output_${Date.now()}.pdf`;
+	
+	try {
+		// Write input file
+		const arrayBuffer = await file.arrayBuffer();
+		await writeFile(inputPath, new Uint8Array(arrayBuffer));
+		
+		onProgress?.(20);
+		
+		// Compress using native Ghostscript
+		const result = await invoke<{
+			output_path: string;
+			original_size: number;
+			compressed_size: number;
+			savings_percent: number;
+		}>('compress_pdf', {
+			inputPath,
+			outputPath,
+			preset
+		});
+		
+		onProgress?.(90);
+		
+		// Read the compressed file
+		const compressedData = await readFile(result.output_path);
+		
+		onProgress?.(100);
+		
+		return new Blob([compressedData], { type: 'application/pdf' });
+	} finally {
+		// Clean up temp files
+		try {
+			await remove(inputPath);
+			await remove(outputPath);
+		} catch {}
+	}
+}
+
+/**
+ * Web-based compression using pdf-lib (browser fallback)
+ * Provides 10-30% size reduction through structure optimization
+ */
+async function compressPDFWeb(
 	file: File,
 	options: CompressOptions
 ): Promise<Blob> {
@@ -565,11 +710,73 @@ interface ProtectOptions {
 }
 
 /**
- * Note: Browser-based PDF encryption has limitations.
- * This uses pdf-lib which supports basic password protection.
- * For AES-256 encryption, a server-side solution would be needed.
+ * Password protect a PDF - uses native qpdf on desktop (AES-256),
+ * falls back to pdf-lib in browser (basic encryption).
  */
 export async function protectPDF(
+	file: File,
+	options: ProtectOptions
+): Promise<Blob> {
+	const useNative = await isQpdfAvailable();
+	
+	if (useNative && isTauri()) {
+		return protectPDFNative(file, options);
+	} else {
+		return protectPDFWeb(file, options);
+	}
+}
+
+/**
+ * Native protection using qpdf (AES-256 encryption)
+ */
+async function protectPDFNative(
+	file: File,
+	options: ProtectOptions
+): Promise<Blob> {
+	const { userPassword, ownerPassword = userPassword, onProgress } = options;
+	
+	onProgress?.(5);
+	
+	const { invoke } = await import('@tauri-apps/api/core');
+	const { appDataDir } = await import('@tauri-apps/api/path');
+	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
+	
+	const tempDir = await appDataDir();
+	const inputPath = `${tempDir}temp_protect_input_${Date.now()}.pdf`;
+	const outputPath = `${tempDir}temp_protect_output_${Date.now()}.pdf`;
+	
+	try {
+		const arrayBuffer = await file.arrayBuffer();
+		await writeFile(inputPath, new Uint8Array(arrayBuffer));
+		
+		onProgress?.(20);
+		
+		await invoke('protect_pdf', {
+			inputPath,
+			outputPath,
+			userPassword,
+			ownerPassword
+		});
+		
+		onProgress?.(90);
+		
+		const protectedData = await readFile(outputPath);
+		
+		onProgress?.(100);
+		
+		return new Blob([protectedData], { type: 'application/pdf' });
+	} finally {
+		try {
+			await remove(inputPath);
+			await remove(outputPath);
+		} catch {}
+	}
+}
+
+/**
+ * Web-based protection using pdf-lib (basic encryption)
+ */
+async function protectPDFWeb(
 	file: File,
 	options: ProtectOptions
 ): Promise<Blob> {
@@ -582,7 +789,6 @@ export async function protectPDF(
 	
 	onProgress?.(50);
 	
-	// pdf-lib supports basic encryption
 	const pdfBytes = await pdf.save({
 		userPassword: userPassword,
 		ownerPassword: ownerPassword,
@@ -612,10 +818,72 @@ interface UnlockOptions {
 }
 
 /**
- * Unlock a password-protected PDF by loading it with the password
- * and saving it without encryption.
+ * Unlock a password-protected PDF - uses native qpdf on desktop,
+ * falls back to pdf-lib in browser.
  */
 export async function unlockPDF(
+	file: File,
+	options: UnlockOptions
+): Promise<Blob> {
+	const useNative = await isQpdfAvailable();
+	
+	if (useNative && isTauri()) {
+		return unlockPDFNative(file, options);
+	} else {
+		return unlockPDFWeb(file, options);
+	}
+}
+
+/**
+ * Native unlock using qpdf
+ */
+async function unlockPDFNative(
+	file: File,
+	options: UnlockOptions
+): Promise<Blob> {
+	const { password, onProgress } = options;
+	
+	onProgress?.(5);
+	
+	const { invoke } = await import('@tauri-apps/api/core');
+	const { appDataDir } = await import('@tauri-apps/api/path');
+	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
+	
+	const tempDir = await appDataDir();
+	const inputPath = `${tempDir}temp_unlock_input_${Date.now()}.pdf`;
+	const outputPath = `${tempDir}temp_unlock_output_${Date.now()}.pdf`;
+	
+	try {
+		const arrayBuffer = await file.arrayBuffer();
+		await writeFile(inputPath, new Uint8Array(arrayBuffer));
+		
+		onProgress?.(20);
+		
+		await invoke('unlock_pdf', {
+			inputPath,
+			outputPath,
+			password
+		});
+		
+		onProgress?.(90);
+		
+		const unlockedData = await readFile(outputPath);
+		
+		onProgress?.(100);
+		
+		return new Blob([unlockedData], { type: 'application/pdf' });
+	} finally {
+		try {
+			await remove(inputPath);
+			await remove(outputPath);
+		} catch {}
+	}
+}
+
+/**
+ * Web-based unlock using pdf-lib
+ */
+async function unlockPDFWeb(
 	file: File,
 	options: UnlockOptions
 ): Promise<Blob> {
@@ -627,7 +895,6 @@ export async function unlockPDF(
 	
 	onProgress?.(30);
 	
-	// Load with password
 	const pdf = await PDFDocument.load(arrayBuffer, {
 		password: password,
 		ignoreEncryption: false
@@ -635,7 +902,6 @@ export async function unlockPDF(
 	
 	onProgress?.(70);
 	
-	// Save without encryption
 	const pdfBytes = await pdf.save();
 	
 	onProgress?.(100);
