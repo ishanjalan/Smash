@@ -9,9 +9,9 @@ import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import { pdfs, type PDFItem, type ImageFormat, type CompressionPreset } from '$lib/stores/pdfs.svelte';
 
-// Configure PDF.js worker
+// Configure PDF.js worker - use unpkg which has all versions
 if (typeof window !== 'undefined') {
-	pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+	pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 // ============================================
