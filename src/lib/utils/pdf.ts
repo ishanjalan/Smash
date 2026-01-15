@@ -1,92 +1,121 @@
 /**
- * PDF Processing Utilities
+ * PDF Processing Utilities - Desktop App (Tauri)
  * 
- * Hybrid processing: Uses native Ghostscript/qpdf in Tauri desktop app,
- * falls back to pdf-lib in web browser. Files never leave your device.
+ * Uses native Ghostscript for compression (50-90% reduction)
+ * Uses native qpdf for encryption (AES-256)
+ * Uses pdf-lib for manipulation (merge, split, rotate, etc.)
+ * 
+ * All processing happens locally - files never leave your device.
  */
 
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
+import { invoke } from '@tauri-apps/api/core';
+import { appDataDir } from '@tauri-apps/api/path';
+import { writeFile, readFile, remove } from '@tauri-apps/plugin-fs';
 import { pdfs, type PDFItem, type ImageFormat, type CompressionPreset } from '$lib/stores/pdfs.svelte';
-import { isTauri } from './platform';
 
-// Configure PDF.js worker - use unpkg which has all versions
+// Configure PDF.js worker
 if (typeof window !== 'undefined') {
 	pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 // ============================================
-// TAURI INTEGRATION - Native tool availability
+// TOOL AVAILABILITY
 // ============================================
 
 let _ghostscriptAvailable: boolean | null = null;
 let _qpdfAvailable: boolean | null = null;
+let _ghostscriptVersion: string | null = null;
+
+export interface ToolStatus {
+	available: boolean;
+	path?: string;
+	version?: string;
+}
 
 /**
- * Check if native Ghostscript is available (desktop only)
+ * Check if Ghostscript is installed
  */
-async function isGhostscriptAvailable(): Promise<boolean> {
-	if (!isTauri()) return false;
-	if (_ghostscriptAvailable !== null) return _ghostscriptAvailable;
+export async function checkGhostscript(): Promise<ToolStatus> {
+	if (_ghostscriptAvailable !== null) {
+		return { available: _ghostscriptAvailable, version: _ghostscriptVersion || undefined };
+	}
 	
 	try {
-		const { checkGhostscript } = await import('./tauri-pdf');
-		const result = await checkGhostscript();
+		const result = await invoke<ToolStatus>('check_ghostscript');
 		_ghostscriptAvailable = result.available;
-		return result.available;
+		if (result.available) {
+			_ghostscriptVersion = await invoke<string>('get_ghostscript_version');
+		}
+		return { ...result, version: _ghostscriptVersion || undefined };
 	} catch {
 		_ghostscriptAvailable = false;
-		return false;
+		return { available: false };
 	}
 }
 
 /**
- * Check if native qpdf is available (desktop only)
+ * Check if qpdf is installed
  */
-async function isQpdfAvailable(): Promise<boolean> {
-	if (!isTauri()) return false;
-	if (_qpdfAvailable !== null) return _qpdfAvailable;
+export async function checkQPDF(): Promise<ToolStatus> {
+	if (_qpdfAvailable !== null) {
+		return { available: _qpdfAvailable };
+	}
 	
 	try {
-		const { checkQPDF } = await import('./tauri-pdf');
-		const result = await checkQPDF();
+		const result = await invoke<ToolStatus>('check_qpdf');
 		_qpdfAvailable = result.available;
-		return result.available;
+		return result;
 	} catch {
 		_qpdfAvailable = false;
-		return false;
+		return { available: false };
 	}
 }
 
 /**
- * Get backend info for UI display
+ * Get backend status for UI display
  */
 export async function getBackendInfo(): Promise<{
-	platform: 'desktop' | 'web';
-	ghostscript: boolean;
-	qpdf: boolean;
-	ghostscriptVersion?: string;
+	ghostscript: ToolStatus;
+	qpdf: ToolStatus;
 }> {
-	const platform = isTauri() ? 'desktop' : 'web';
-	const ghostscript = await isGhostscriptAvailable();
-	const qpdf = await isQpdfAvailable();
-	
-	let ghostscriptVersion: string | undefined;
-	if (ghostscript) {
-		try {
-			const { getGhostscriptVersion } = await import('./tauri-pdf');
-			ghostscriptVersion = await getGhostscriptVersion() || undefined;
-		} catch {}
-	}
-	
-	return { platform, ghostscript, qpdf, ghostscriptVersion };
+	const [ghostscript, qpdf] = await Promise.all([
+		checkGhostscript(),
+		checkQPDF()
+	]);
+	return { ghostscript, qpdf };
 }
 
-// Re-export platform utilities
-export { isTauri } from './platform';
+// ============================================
+// TEMP FILE HELPERS
+// ============================================
+
+async function getTempPath(prefix: string): Promise<string> {
+	const tempDir = await appDataDir();
+	return `${tempDir}${prefix}_${Date.now()}.pdf`;
+}
+
+async function writeTemp(file: File, prefix: string): Promise<string> {
+	const path = await getTempPath(prefix);
+	const arrayBuffer = await file.arrayBuffer();
+	await writeFile(path, new Uint8Array(arrayBuffer));
+	return path;
+}
+
+async function readTemp(path: string): Promise<Blob> {
+	const data = await readFile(path);
+	return new Blob([data], { type: 'application/pdf' });
+}
+
+async function cleanupTemp(...paths: string[]) {
+	for (const path of paths) {
+		try { await remove(path); } catch {}
+	}
+}
 
 // ============================================
-// PDF COMPRESSION (Using pdf-lib optimization)
+// PDF COMPRESSION (Native Ghostscript)
 // ============================================
 
 interface CompressOptions {
@@ -94,25 +123,9 @@ interface CompressOptions {
 	onProgress?: (progress: number) => void;
 }
 
-// DPI settings for each preset
-const PRESET_DPI: Record<CompressionPreset, number> = {
-	screen: 72,
-	ebook: 150,
-	printer: 200,
-	prepress: 300
-};
-
-// Quality settings for each preset (0-1)
-const PRESET_QUALITY: Record<CompressionPreset, number> = {
-	screen: 0.5,
-	ebook: 0.7,
-	printer: 0.85,
-	prepress: 0.95
-};
-
 /**
- * Compress PDF - uses native Ghostscript on desktop (50-90% reduction),
- * falls back to pdf-lib optimization in browser (10-30% reduction).
+ * Compress PDF using native Ghostscript
+ * Provides 50-90% size reduction while preserving text selectability
  */
 export async function compressPDF(
 	file: File,
@@ -120,49 +133,20 @@ export async function compressPDF(
 ): Promise<Blob> {
 	const { preset = 'ebook', onProgress } = options;
 	
-	// Check if we can use native Ghostscript (much better compression)
-	const useNative = await isGhostscriptAvailable();
-	
-	if (useNative && isTauri()) {
-		return compressPDFNative(file, options);
-	} else {
-		return compressPDFWeb(file, options);
+	// Check Ghostscript availability
+	const gs = await checkGhostscript();
+	if (!gs.available) {
+		throw new Error('Ghostscript is not installed. Please install Ghostscript to use compression.');
 	}
-}
-
-/**
- * Native compression using Ghostscript (desktop only)
- * Provides 50-90% size reduction while preserving text selectability
- */
-async function compressPDFNative(
-	file: File,
-	options: CompressOptions
-): Promise<Blob> {
-	const { preset = 'ebook', onProgress } = options;
 	
 	onProgress?.(5);
 	
-	// For Tauri, we need to save the file temporarily and use native path
-	// This is a workaround since Tauri commands work with file paths
-	const { invoke } = await import('@tauri-apps/api/core');
-	const { appDataDir } = await import('@tauri-apps/api/path');
-	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
-	
-	onProgress?.(10);
-	
-	// Get temp directory and create temp file paths
-	const tempDir = await appDataDir();
-	const inputPath = `${tempDir}temp_input_${Date.now()}.pdf`;
-	const outputPath = `${tempDir}temp_output_${Date.now()}.pdf`;
+	const inputPath = await writeTemp(file, 'compress_input');
+	const outputPath = await getTempPath('compress_output');
 	
 	try {
-		// Write input file
-		const arrayBuffer = await file.arrayBuffer();
-		await writeFile(inputPath, new Uint8Array(arrayBuffer));
-		
 		onProgress?.(20);
 		
-		// Compress using native Ghostscript
 		const result = await invoke<{
 			output_path: string;
 			original_size: number;
@@ -176,68 +160,18 @@ async function compressPDFNative(
 		
 		onProgress?.(90);
 		
-		// Read the compressed file
-		const compressedData = await readFile(result.output_path);
+		const blob = await readTemp(result.output_path);
 		
 		onProgress?.(100);
 		
-		return new Blob([compressedData], { type: 'application/pdf' });
+		return blob;
 	} finally {
-		// Clean up temp files
-		try {
-			await remove(inputPath);
-			await remove(outputPath);
-		} catch {}
+		await cleanupTemp(inputPath, outputPath);
 	}
-}
-
-/**
- * Web-based compression using pdf-lib (browser fallback)
- * Provides 10-30% size reduction through structure optimization
- */
-async function compressPDFWeb(
-	file: File,
-	options: CompressOptions
-): Promise<Blob> {
-	const { preset = 'ebook', onProgress } = options;
-	
-	onProgress?.(10);
-	
-	const arrayBuffer = await file.arrayBuffer();
-	const srcPdf = await PDFDocument.load(arrayBuffer, {
-		ignoreEncryption: true
-	});
-	
-	onProgress?.(30);
-	
-	// Create a new optimized PDF
-	const newPdf = await PDFDocument.create();
-	
-	// Copy all pages (this re-encodes and often compresses)
-	const pageCount = srcPdf.getPageCount();
-	const pages = await newPdf.copyPages(srcPdf, srcPdf.getPageIndices());
-	
-	for (let i = 0; i < pages.length; i++) {
-		newPdf.addPage(pages[i]);
-		onProgress?.(30 + Math.round((i / pageCount) * 50));
-	}
-	
-	onProgress?.(85);
-	
-	// Save with optimizations
-	const pdfBytes = await newPdf.save({
-		useObjectStreams: true,      // Compress object streams
-		addDefaultPage: false,
-		objectsPerTick: 100          // Process in batches for better perf
-	});
-	
-	onProgress?.(100);
-	
-	return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
 // ============================================
-// PDF MERGE
+// PDF MERGE (pdf-lib)
 // ============================================
 
 export async function mergePDFs(
@@ -260,7 +194,7 @@ export async function mergePDFs(
 }
 
 // ============================================
-// PDF SPLIT
+// PDF SPLIT (pdf-lib)
 // ============================================
 
 interface SplitOptions {
@@ -281,7 +215,6 @@ export async function splitPDF(
 	const results: Blob[] = [];
 	
 	if (options.mode === 'range' && options.range) {
-		// Extract page range as single PDF
 		const newPdf = await PDFDocument.create();
 		const pageIndices = Array.from(
 			{ length: options.range.end - options.range.start + 1 },
@@ -296,7 +229,6 @@ export async function splitPDF(
 	}
 	
 	else if (options.mode === 'extract' && options.pages) {
-		// Extract specific pages as single PDF
 		const newPdf = await PDFDocument.create();
 		const pageIndices = options.pages
 			.map(p => p - 1)
@@ -310,7 +242,6 @@ export async function splitPDF(
 	}
 	
 	else if (options.mode === 'every-n' && options.everyN) {
-		// Split into chunks of N pages
 		const n = options.everyN;
 		for (let i = 0; i < totalPages; i += n) {
 			const newPdf = await PDFDocument.create();
@@ -330,13 +261,13 @@ export async function splitPDF(
 }
 
 // ============================================
-// PDF TO IMAGES
+// PDF TO IMAGES (PDF.js)
 // ============================================
 
 interface PDFToImagesOptions {
 	format: ImageFormat;
 	dpi: number;
-	quality: number; // 0-100
+	quality: number;
 	onProgress?: (progress: number) => void;
 }
 
@@ -346,7 +277,7 @@ export async function pdfToImages(
 ): Promise<Blob[]> {
 	const arrayBuffer = await file.arrayBuffer();
 	const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-	const scale = options.dpi / 72; // PDF default is 72 DPI
+	const scale = options.dpi / 72;
 	const images: Blob[] = [];
 	
 	for (let i = 1; i <= pdf.numPages; i++) {
@@ -373,7 +304,7 @@ export async function pdfToImages(
 }
 
 // ============================================
-// IMAGES TO PDF
+// IMAGES TO PDF (pdf-lib)
 // ============================================
 
 export async function imagesToPDF(
@@ -390,7 +321,6 @@ export async function imagesToPDF(
 		if (file.type === 'image/png') {
 			image = await pdf.embedPng(arrayBuffer);
 		} else if (file.type === 'image/webp') {
-			// WebP needs to be converted to PNG first via canvas
 			const img = await loadImage(file);
 			const canvas = document.createElement('canvas');
 			canvas.width = img.width;
@@ -403,11 +333,9 @@ export async function imagesToPDF(
 			const pngBuffer = await pngBlob.arrayBuffer();
 			image = await pdf.embedPng(pngBuffer);
 		} else {
-			// Assume JPEG
 			image = await pdf.embedJpg(arrayBuffer);
 		}
 		
-		// Add page with image dimensions
 		const page = pdf.addPage([image.width, image.height]);
 		page.drawImage(image, {
 			x: 0,
@@ -423,7 +351,6 @@ export async function imagesToPDF(
 	return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// Helper: Load image from file
 function loadImage(file: File): Promise<HTMLImageElement> {
 	return new Promise((resolve, reject) => {
 		const img = new Image();
@@ -433,32 +360,8 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 	});
 }
 
-// Helper: Parse page range string (e.g., "1-5, 8, 10-12")
-function parsePageRangeHelper(rangeStr: string, maxPages: number): number[] {
-	const pages = new Set<number>();
-	const parts = rangeStr.split(',').map((s) => s.trim());
-
-	for (const part of parts) {
-		if (part.includes('-')) {
-			const [start, end] = part.split('-').map((s) => parseInt(s.trim(), 10));
-			if (!isNaN(start) && !isNaN(end)) {
-				for (let i = Math.max(1, start); i <= Math.min(maxPages, end); i++) {
-					pages.add(i);
-				}
-			}
-		} else {
-			const page = parseInt(part, 10);
-			if (!isNaN(page) && page >= 1 && page <= maxPages) {
-				pages.add(page);
-			}
-		}
-	}
-
-	return Array.from(pages).sort((a, b) => a - b);
-}
-
 // ============================================
-// GET PAGE COUNT
+// PAGE OPERATIONS (pdf-lib)
 // ============================================
 
 export async function getPageCount(file: File): Promise<number> {
@@ -467,16 +370,12 @@ export async function getPageCount(file: File): Promise<number> {
 	return pdf.getPageCount();
 }
 
-// ============================================
-// GENERATE THUMBNAIL
-// ============================================
-
 export async function generateThumbnail(file: File): Promise<string> {
 	const arrayBuffer = await file.arrayBuffer();
 	const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 	const page = await pdf.getPage(1);
 	
-	const scale = 0.5; // Thumbnail scale
+	const scale = 0.5;
 	const viewport = page.getViewport({ scale });
 	
 	const canvas = document.createElement('canvas');
@@ -489,13 +388,9 @@ export async function generateThumbnail(file: File): Promise<string> {
 	return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// ============================================
-// ROTATE PDF PAGES
-// ============================================
-
 interface RotateOptions {
 	angle: 90 | 180 | 270;
-	pages?: number[]; // If not provided, rotate all pages
+	pages?: number[];
 	onProgress?: (progress: number) => void;
 }
 
@@ -522,12 +417,8 @@ export async function rotatePDF(
 	return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// ============================================
-// DELETE PDF PAGES
-// ============================================
-
 interface DeletePagesOptions {
-	pages: number[]; // 1-indexed page numbers to delete
+	pages: number[];
 	onProgress?: (progress: number) => void;
 }
 
@@ -538,9 +429,7 @@ export async function deletePages(
 	const arrayBuffer = await file.arrayBuffer();
 	const pdf = await PDFDocument.load(arrayBuffer);
 	
-	// Sort pages in descending order to delete from end first
 	const pagesToDelete = [...options.pages].sort((a, b) => b - a);
-	const totalPages = pdf.getPageCount();
 	
 	for (let i = 0; i < pagesToDelete.length; i++) {
 		const pageIndex = pagesToDelete[i] - 1;
@@ -554,12 +443,8 @@ export async function deletePages(
 	return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// ============================================
-// REORDER PDF PAGES
-// ============================================
-
 interface ReorderOptions {
-	newOrder: number[]; // Array of 1-indexed page numbers in new order
+	newOrder: number[];
 	onProgress?: (progress: number) => void;
 }
 
@@ -585,13 +470,13 @@ export async function reorderPages(
 }
 
 // ============================================
-// ADD PAGE NUMBERS
+// PAGE NUMBERS & WATERMARK (pdf-lib)
 // ============================================
 
 interface PageNumberOptions {
 	position: 'bottom-center' | 'bottom-right' | 'top-center' | 'top-right';
 	startNumber?: number;
-	format?: string; // e.g., "Page {n}" or just "{n}"
+	format?: string;
 	onProgress?: (progress: number) => void;
 }
 
@@ -650,15 +535,11 @@ export async function addPageNumbers(
 	return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// ============================================
-// ADD WATERMARK
-// ============================================
-
 interface WatermarkOptions {
 	text: string;
-	opacity: number; // 0-100
+	opacity: number;
 	fontSize?: number;
-	angle?: number; // Rotation angle in degrees
+	angle?: number;
 	onProgress?: (progress: number) => void;
 }
 
@@ -678,7 +559,6 @@ export async function addWatermark(
 		const { width, height } = page.getSize();
 		const textWidth = font.widthOfTextAtSize(text, fontSize);
 		
-		// Center the watermark
 		const x = (width - textWidth) / 2;
 		const y = height / 2;
 		
@@ -700,7 +580,7 @@ export async function addWatermark(
 }
 
 // ============================================
-// PASSWORD PROTECT PDF
+// PASSWORD PROTECTION (Native qpdf)
 // ============================================
 
 interface ProtectOptions {
@@ -710,45 +590,25 @@ interface ProtectOptions {
 }
 
 /**
- * Password protect a PDF - uses native qpdf on desktop (AES-256),
- * falls back to pdf-lib in browser (basic encryption).
+ * Password protect a PDF using native qpdf (AES-256 encryption)
  */
 export async function protectPDF(
 	file: File,
 	options: ProtectOptions
 ): Promise<Blob> {
-	const useNative = await isQpdfAvailable();
-	
-	if (useNative && isTauri()) {
-		return protectPDFNative(file, options);
-	} else {
-		return protectPDFWeb(file, options);
-	}
-}
-
-/**
- * Native protection using qpdf (AES-256 encryption)
- */
-async function protectPDFNative(
-	file: File,
-	options: ProtectOptions
-): Promise<Blob> {
 	const { userPassword, ownerPassword = userPassword, onProgress } = options;
+	
+	const qpdf = await checkQPDF();
+	if (!qpdf.available) {
+		throw new Error('qpdf is not installed. Please install qpdf to use password protection.');
+	}
 	
 	onProgress?.(5);
 	
-	const { invoke } = await import('@tauri-apps/api/core');
-	const { appDataDir } = await import('@tauri-apps/api/path');
-	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
-	
-	const tempDir = await appDataDir();
-	const inputPath = `${tempDir}temp_protect_input_${Date.now()}.pdf`;
-	const outputPath = `${tempDir}temp_protect_output_${Date.now()}.pdf`;
+	const inputPath = await writeTemp(file, 'protect_input');
+	const outputPath = await getTempPath('protect_output');
 	
 	try {
-		const arrayBuffer = await file.arrayBuffer();
-		await writeFile(inputPath, new Uint8Array(arrayBuffer));
-		
 		onProgress?.(20);
 		
 		await invoke('protect_pdf', {
@@ -760,57 +620,15 @@ async function protectPDFNative(
 		
 		onProgress?.(90);
 		
-		const protectedData = await readFile(outputPath);
+		const blob = await readTemp(outputPath);
 		
 		onProgress?.(100);
 		
-		return new Blob([protectedData], { type: 'application/pdf' });
+		return blob;
 	} finally {
-		try {
-			await remove(inputPath);
-			await remove(outputPath);
-		} catch {}
+		await cleanupTemp(inputPath, outputPath);
 	}
 }
-
-/**
- * Web-based protection using pdf-lib (basic encryption)
- */
-async function protectPDFWeb(
-	file: File,
-	options: ProtectOptions
-): Promise<Blob> {
-	const { userPassword, ownerPassword = userPassword, onProgress } = options;
-	
-	onProgress?.(10);
-	
-	const arrayBuffer = await file.arrayBuffer();
-	const pdf = await PDFDocument.load(arrayBuffer);
-	
-	onProgress?.(50);
-	
-	const pdfBytes = await pdf.save({
-		userPassword: userPassword,
-		ownerPassword: ownerPassword,
-		permissions: {
-			printing: 'lowResolution',
-			modifying: false,
-			copying: false,
-			annotating: false,
-			fillingForms: false,
-			contentAccessibility: true,
-			documentAssembly: false
-		}
-	});
-	
-	onProgress?.(100);
-	
-	return new Blob([pdfBytes], { type: 'application/pdf' });
-}
-
-// ============================================
-// UNLOCK PDF
-// ============================================
 
 interface UnlockOptions {
 	password: string;
@@ -818,45 +636,25 @@ interface UnlockOptions {
 }
 
 /**
- * Unlock a password-protected PDF - uses native qpdf on desktop,
- * falls back to pdf-lib in browser.
+ * Remove password protection from a PDF using native qpdf
  */
 export async function unlockPDF(
 	file: File,
 	options: UnlockOptions
 ): Promise<Blob> {
-	const useNative = await isQpdfAvailable();
-	
-	if (useNative && isTauri()) {
-		return unlockPDFNative(file, options);
-	} else {
-		return unlockPDFWeb(file, options);
-	}
-}
-
-/**
- * Native unlock using qpdf
- */
-async function unlockPDFNative(
-	file: File,
-	options: UnlockOptions
-): Promise<Blob> {
 	const { password, onProgress } = options;
+	
+	const qpdf = await checkQPDF();
+	if (!qpdf.available) {
+		throw new Error('qpdf is not installed. Please install qpdf to unlock PDFs.');
+	}
 	
 	onProgress?.(5);
 	
-	const { invoke } = await import('@tauri-apps/api/core');
-	const { appDataDir } = await import('@tauri-apps/api/path');
-	const { writeFile, readFile, remove } = await import('@tauri-apps/plugin-fs');
-	
-	const tempDir = await appDataDir();
-	const inputPath = `${tempDir}temp_unlock_input_${Date.now()}.pdf`;
-	const outputPath = `${tempDir}temp_unlock_output_${Date.now()}.pdf`;
+	const inputPath = await writeTemp(file, 'unlock_input');
+	const outputPath = await getTempPath('unlock_output');
 	
 	try {
-		const arrayBuffer = await file.arrayBuffer();
-		await writeFile(inputPath, new Uint8Array(arrayBuffer));
-		
 		onProgress?.(20);
 		
 		await invoke('unlock_pdf', {
@@ -867,46 +665,41 @@ async function unlockPDFNative(
 		
 		onProgress?.(90);
 		
-		const unlockedData = await readFile(outputPath);
+		const blob = await readTemp(outputPath);
 		
 		onProgress?.(100);
 		
-		return new Blob([unlockedData], { type: 'application/pdf' });
+		return blob;
 	} finally {
-		try {
-			await remove(inputPath);
-			await remove(outputPath);
-		} catch {}
+		await cleanupTemp(inputPath, outputPath);
 	}
 }
 
-/**
- * Web-based unlock using pdf-lib
- */
-async function unlockPDFWeb(
-	file: File,
-	options: UnlockOptions
-): Promise<Blob> {
-	const { password, onProgress } = options;
-	
-	onProgress?.(10);
-	
-	const arrayBuffer = await file.arrayBuffer();
-	
-	onProgress?.(30);
-	
-	const pdf = await PDFDocument.load(arrayBuffer, {
-		password: password,
-		ignoreEncryption: false
-	});
-	
-	onProgress?.(70);
-	
-	const pdfBytes = await pdf.save();
-	
-	onProgress?.(100);
-	
-	return new Blob([pdfBytes], { type: 'application/pdf' });
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function parsePageRangeHelper(rangeStr: string, maxPages: number): number[] {
+	const pages = new Set<number>();
+	const parts = rangeStr.split(',').map((s) => s.trim());
+
+	for (const part of parts) {
+		if (part.includes('-')) {
+			const [start, end] = part.split('-').map((s) => parseInt(s.trim(), 10));
+			if (!isNaN(start) && !isNaN(end)) {
+				for (let i = Math.max(1, start); i <= Math.min(maxPages, end); i++) {
+					pages.add(i);
+				}
+			}
+		} else {
+			const page = parseInt(part, 10);
+			if (!isNaN(page) && page >= 1 && page <= maxPages) {
+				pages.add(page);
+			}
+		}
+	}
+
+	return Array.from(pages).sort((a, b) => a - b);
 }
 
 // ============================================
@@ -926,13 +719,10 @@ export async function processFiles() {
 	
 	try {
 		if (tool === 'merge') {
-			// Merge all pending files into one
 			await processMerge(pendingItems);
 		} else if (tool === 'images-to-pdf') {
-			// Convert all images to one PDF
 			await processImagesToPDF(pendingItems);
 		} else {
-			// Process each file individually
 			for (const item of pendingItems) {
 				await processItem(item);
 			}
@@ -957,7 +747,7 @@ async function processItem(item: PDFItem) {
 		
 		switch (tool) {
 			case 'compress':
-				pdfs.updateItem(item.id, { progressStage: 'Loading compression engine...' });
+				pdfs.updateItem(item.id, { progressStage: 'Compressing with Ghostscript...' });
 				result = await compressPDF(item.file, {
 					preset: settings.compressionPreset,
 					onProgress: (p) => {
@@ -987,7 +777,6 @@ async function processItem(item: PDFItem) {
 						onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
 					};
 				} else {
-					// extract mode - parse page range
 					splitOptions = {
 						mode: 'extract',
 						pages: parsePageRangeHelper(settings.splitRange, pageCount),
@@ -1015,8 +804,6 @@ async function processItem(item: PDFItem) {
 				break;
 				
 			case 'reorder':
-				// For reorder, we need the selected pages as the new order
-				// This will be handled by the UI passing the new order
 				const reorderPageCount = await getPageCount(item.file);
 				const newOrder = item.selectedPages || Array.from({ length: reorderPageCount }, (_, i) => i + 1);
 				result = await reorderPages(item.file, {
@@ -1050,7 +837,7 @@ async function processItem(item: PDFItem) {
 				break;
 				
 			case 'protect':
-				pdfs.updateItem(item.id, { progressStage: 'Loading encryption engine...' });
+				pdfs.updateItem(item.id, { progressStage: 'Encrypting with qpdf...' });
 				result = await protectPDF(item.file, {
 					userPassword: settings.userPassword,
 					ownerPassword: settings.ownerPassword || settings.userPassword,
@@ -1059,7 +846,7 @@ async function processItem(item: PDFItem) {
 				break;
 				
 			case 'unlock':
-				pdfs.updateItem(item.id, { progressStage: 'Loading decryption engine...' });
+				pdfs.updateItem(item.id, { progressStage: 'Decrypting with qpdf...' });
 				result = await unlockPDF(item.file, {
 					password: settings.userPassword,
 					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
@@ -1072,7 +859,6 @@ async function processItem(item: PDFItem) {
 		
 		// Handle result
 		if (Array.isArray(result)) {
-			// Multiple outputs (split or PDF-to-images)
 			const totalSize = result.reduce((acc, b) => acc + b.size, 0);
 			pdfs.updateItem(item.id, {
 				status: 'completed',
@@ -1082,7 +868,6 @@ async function processItem(item: PDFItem) {
 				progressStage: `${result.length} files created`
 			});
 		} else {
-			// Single output
 			const processedUrl = URL.createObjectURL(result);
 			pdfs.updateItem(item.id, {
 				status: 'completed',
@@ -1103,7 +888,6 @@ async function processItem(item: PDFItem) {
 }
 
 async function processMerge(items: PDFItem[]) {
-	// Use first item as the "result" container
 	const firstItem = items[0];
 	
 	try {
@@ -1113,7 +897,6 @@ async function processMerge(items: PDFItem[]) {
 			progressStage: 'Merging PDFs...'
 		});
 		
-		// Sort by order
 		const sortedFiles = [...items]
 			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 			.map(i => i.file);
@@ -1124,7 +907,6 @@ async function processMerge(items: PDFItem[]) {
 		
 		const processedUrl = URL.createObjectURL(result);
 		
-		// Mark first item as completed with result
 		pdfs.updateItem(firstItem.id, {
 			status: 'completed',
 			progress: 100,
@@ -1134,7 +916,6 @@ async function processMerge(items: PDFItem[]) {
 			progressStage: `Merged ${items.length} PDFs`
 		});
 		
-		// Remove other items
 		for (let i = 1; i < items.length; i++) {
 			pdfs.removeItem(items[i].id);
 		}
@@ -1157,7 +938,6 @@ async function processImagesToPDF(items: PDFItem[]) {
 			progressStage: 'Creating PDF...'
 		});
 		
-		// Sort by order
 		const sortedFiles = [...items]
 			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 			.map(i => i.file);
@@ -1177,7 +957,6 @@ async function processImagesToPDF(items: PDFItem[]) {
 			progressStage: `Created from ${items.length} images`
 		});
 		
-		// Remove other items
 		for (let i = 1; i < items.length; i++) {
 			pdfs.removeItem(items[i].id);
 		}

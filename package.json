@@ -15,7 +15,6 @@
 		"tauri:build": "tauri build"
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-auto": "^7.0.0",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.49.1",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
@@ -30,16 +29,12 @@
 		"vite": "^7.2.6"
 	},
 	"dependencies": {
-		"@hyzyla/pdfium": "^2.1.9",
-		"@jspawn/ghostscript-wasm": "^0.0.2",
-		"@neslinesli93/qpdf-wasm": "^0.3.0",
 		"@tauri-apps/plugin-dialog": "^2.6.0",
 		"@tauri-apps/plugin-fs": "^2.4.5",
 		"@tauri-apps/plugin-os": "^2.3.2",
 		"@tauri-apps/plugin-shell": "^2.3.4",
-		"idb": "^8.0.0",
 		"jszip": "^3.10.1",
 		"pdf-lib": "^1.17.1",
-		"pdfjs-dist": "^4.0.379"
+		"pdfjs-dist": "^4.10.38"
 	}
 }

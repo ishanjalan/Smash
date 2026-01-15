@@ -1,52 +1,116 @@
 # Smash
 
-Privacy-first PDF tools that run entirely in your browser. Compress, merge, split, and convert PDFs — no uploads, no servers, no limits.
+Privacy-first PDF toolkit for Windows, macOS, and Linux. Compress, merge, split, and protect PDFs — all processing happens locally on your device.
 
 **Part of the privacy-first toolkit: [Squish](https://github.com/ishanjalan/ImageOptimser) (images) • [Squash](https://github.com/ishanjalan/Squash) (videos) • Smash (PDFs)**
-
-![Smash Screenshot](static/og-image.svg)
 
 ## ✨ Features
 
 ### 🗜️ Compress PDF
-Reduce file size by re-rendering pages as optimized images. Perfect for email attachments and file sharing.
+Reduce file size by 50-90% using native Ghostscript. Perfect for email attachments and file sharing.
 
 ### 📎 Merge PDFs
 Combine multiple PDF files into one. Drag to reorder before merging.
 
 ### ✂️ Split PDF
-Extract specific pages or split by range. Get exactly the pages you need.
+Extract specific pages, split by range, or split every N pages.
+
+### 🔄 Rotate Pages
+Rotate all or specific pages by 90°, 180°, or 270°.
+
+### 🗑️ Delete Pages
+Remove unwanted pages from your PDFs.
+
+### 📑 Reorder Pages
+Rearrange pages in any order you want.
+
+### 🔢 Add Page Numbers
+Add customizable page numbers to any position.
+
+### 💧 Watermark
+Add text watermarks with custom opacity and rotation.
+
+### 🔐 Password Protect
+Encrypt PDFs with AES-256 using native qpdf.
+
+### 🔓 Remove Password
+Unlock password-protected PDFs (if you know the password).
 
 ### 🖼️ PDF → Images
-Convert PDF pages to PNG, JPG, or WebP. Choose resolution (72/150/300 DPI) and quality.
+Convert PDF pages to PNG, JPG, or WebP at any DPI.
 
 ### 📄 Images → PDF
-Create a PDF from multiple images. Drag to reorder before conversion.
+Create a PDF from multiple images.
 
 ## 🔒 100% Private
 
-Your files **never leave your device**. All processing happens locally in your browser using WebAssembly and Canvas APIs. No server uploads, no data collection, complete privacy.
+Your files **never leave your device**. All processing happens locally using native tools:
+
+- **Ghostscript** for professional-grade PDF compression
+- **qpdf** for AES-256 encryption
+- **pdf-lib** for PDF manipulation
+- **PDF.js** for rendering
+
+No cloud uploads. No data collection. Complete privacy.
 
 ## 🛠 Tech Stack
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| Framework | [SvelteKit 2](https://kit.svelte.dev/) + [Svelte 5](https://svelte.dev/) | Modern reactive UI |
+| Desktop Framework | [Tauri 2](https://tauri.app/) | Cross-platform native app |
+| Backend | Rust | Native performance |
+| Frontend | [SvelteKit 2](https://kit.svelte.dev/) + [Svelte 5](https://svelte.dev/) | Modern reactive UI |
 | Styling | [Tailwind CSS v4](https://tailwindcss.com/) | Utility-first CSS |
-| PDF Manipulation | [pdf-lib](https://pdf-lib.js.org/) | Create, modify, merge PDFs |
-| PDF Rendering | [PDF.js](https://mozilla.github.io/pdf.js/) | Render PDFs to Canvas |
-| Storage | IndexedDB via [idb](https://github.com/jakearchibald/idb) | Large file handling |
+| PDF Compression | [Ghostscript](https://www.ghostscript.com/) | Industry-standard compression |
+| PDF Encryption | [qpdf](https://qpdf.sourceforge.io/) | AES-256 encryption |
+| PDF Manipulation | [pdf-lib](https://pdf-lib.js.org/) | Merge, split, rotate, etc. |
+| PDF Rendering | [PDF.js](https://mozilla.github.io/pdf.js/) | Page previews & conversion |
 | Icons | [Lucide](https://lucide.dev/) | Beautiful icon set |
-| Language | TypeScript | Type safety |
 
-## 🚀 Getting Started
+## 🚀 Installation
+
+### Download
+
+Download the latest release for your platform:
+
+- **Windows**: `.msi` installer
+- **macOS**: `.dmg` (Intel & Apple Silicon)
+- **Linux**: `.AppImage` or `.deb`
+
+### Prerequisites
+
+Smash requires these tools to be installed for full functionality:
+
+#### Ghostscript (for compression)
+```bash
+# macOS
+brew install ghostscript
+
+# Ubuntu/Debian
+sudo apt install ghostscript
+
+# Windows - download from https://www.ghostscript.com/releases/gsdnld.html
+```
+
+#### qpdf (for encryption)
+```bash
+# macOS
+brew install qpdf
+
+# Ubuntu/Debian
+sudo apt install qpdf
+
+# Windows - download from https://github.com/qpdf/qpdf/releases
+```
+
+## 🔧 Development
 
 ### Prerequisites
 - Node.js 18+
-- npm, pnpm, or yarn
-- Modern browser (Chrome 94+, Edge 94+, Firefox 100+, Safari 16.4+)
+- Rust (install via [rustup](https://rustup.rs/))
+- Ghostscript and qpdf installed
 
-### Installation
+### Setup
 
 ```bash
 # Clone the repository
@@ -56,68 +120,48 @@ cd Smash
 # Install dependencies
 npm install
 
-# Start development server
-npm run dev
+# Start development (opens Tauri app)
+npm run tauri:dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-### Production Build
+### Build
 
 ```bash
-npm run build
-npm run preview
+# Build for production
+npm run tauri:build
 ```
+
+Build artifacts will be in `src-tauri/target/release/bundle/`.
 
 ## 📖 Usage
 
-1. **Select a tool** — Choose Compress, Merge, Split, PDF→Images, or Images→PDF
-2. **Drop files** — Drag and drop files onto the drop zone or click to browse
-3. **Configure** — Adjust settings like compression level, page range, or image format
-4. **Process** — Click the Process button to start
-5. **Download** — Get your processed files individually or as a ZIP
+1. **Select a tool** — Choose from 12+ PDF tools in the sidebar
+2. **Drop files** — Drag and drop files or click to browse
+3. **Configure** — Adjust settings for the selected tool
+4. **Process** — Click Process to start
+5. **Download** — Save processed files to your chosen location
 
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `1` - `5` | Switch between tools |
-| `Cmd/Ctrl + Shift + D` | Download all as ZIP |
-| `Cmd/Ctrl + V` | Paste from clipboard |
+| `1` - `9` | Switch between tools |
+| `Cmd/Ctrl + O` | Open files |
+| `Cmd/Ctrl + Shift + D` | Download all |
 | `Escape` | Clear all / Close modal |
 | `?` | Show keyboard shortcuts |
-
-## 📊 Supported Formats
-
-### Input
-- PDF files (for Compress, Merge, Split, PDF→Images)
-- JPG, PNG, WebP images (for Images→PDF)
-
-### Output
-| Tool | Output |
-|------|--------|
-| **Compress** | PDF (optimized) |
-| **Merge** | Single PDF |
-| **Split** | Multiple PDFs |
-| **PDF→Images** | PNG, JPG, or WebP |
-| **Images→PDF** | Single PDF |
-
-## 📱 PWA Support
-
-- Install as a desktop/mobile app
-- Offline-capable with Service Worker
-- Share Target API support
-- File Handler API support
 
 ## 🌟 Smash vs Competition
 
 | Feature | Smash | iLovePDF | SmallPDF |
 |---------|-------|----------|----------|
-| 100% Client-side | ✅ | ❌ | ❌ |
+| 100% Local | ✅ | ❌ | ❌ |
 | No file uploads | ✅ | ❌ | ❌ |
 | No account required | ✅ | ⚠️ Limited | ⚠️ Limited |
-| No file limits | ✅ | ❌ | ❌ |
-| Offline support | ✅ | ❌ | ❌ |
+| No file size limits | ✅ | ❌ | ❌ |
+| Native performance | ✅ | ❌ | ❌ |
+| AES-256 encryption | ✅ | ✅ | ✅ |
+| Ghostscript compression | ✅ | ❌ | ❌ |
 | Free forever | ✅ | ⚠️ Freemium | ⚠️ Freemium |
 
 ## 🤝 Contributing
@@ -136,6 +180,9 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
+- [Tauri](https://tauri.app/) — Build desktop apps with web tech
+- [Ghostscript](https://www.ghostscript.com/) — Industry-standard PDF processing
+- [qpdf](https://qpdf.sourceforge.io/) — PDF encryption toolkit
 - [pdf-lib](https://pdf-lib.js.org/) — Pure JavaScript PDF library
 - [PDF.js](https://mozilla.github.io/pdf.js/) — Mozilla's PDF rendering library
 - [Squish](https://github.com/ishanjalan/ImageOptimser) — Sister project for image optimization

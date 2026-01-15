@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { Upload, FileText, Image, FolderOpen } from 'lucide-svelte';
+	import { Upload, FileText, Image } from 'lucide-svelte';
+	import { open } from '@tauri-apps/plugin-dialog';
+	import { readFile } from '@tauri-apps/plugin-fs';
 	import { pdfs, TOOLS } from '$lib/stores/pdfs.svelte';
-	import { isTauri } from '$lib/utils/platform';
-	import { onMount } from 'svelte';
 
 	let isDragging = $state(false);
 	let fileInput: HTMLInputElement;
-	let isDesktop = $state(false);
 
 	const currentTool = $derived(TOOLS.find(t => t.value === pdfs.settings.tool));
 	const acceptedFormats = $derived(currentTool?.accepts || '.pdf');
@@ -22,10 +21,6 @@
 			  ]
 			: [{ name: 'PDF', color: 'from-sky-500 to-cyan-500' }]
 	);
-
-	onMount(() => {
-		isDesktop = isTauri();
-	});
 
 	function handleDragEnter(e: DragEvent) {
 		e.preventDefault();
@@ -56,35 +51,39 @@
 		}
 	}
 
-	async function handleFileSelect(e: Event) {
-		const input = e.target as HTMLInputElement;
-		const files = input.files;
-		if (files && files.length > 0) {
-			await pdfs.addFiles(files);
-		}
-		input.value = '';
-	}
-
 	async function openFilePicker() {
-		if (isDesktop) {
-			// Use native file dialog in Tauri
-			try {
-				const { selectPDFFiles, selectImageFiles } = await import('$lib/utils/tauri-pdf');
-				const paths = isImageTool 
-					? await selectImageFiles()
-					: await selectPDFFiles();
+		try {
+			const filters = isImageTool
+				? [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
+				: [{ name: 'PDF', extensions: ['pdf'] }];
+			
+			const result = await open({
+				multiple: true,
+				filters,
+				title: isImageTool ? 'Select Images' : 'Select PDF Files'
+			});
+			
+			if (result) {
+				const paths = Array.isArray(result) ? result : [result];
 				
-				if (paths && paths.length > 0) {
-					await pdfs.addFilesFromPaths(paths);
+				// Read files from paths and add them
+				for (const filePath of paths) {
+					const fileName = filePath.split(/[/\\]/).pop() || 'file';
+					const ext = fileName.split('.').pop()?.toLowerCase() || '';
+					const data = await readFile(filePath);
+					
+					// Determine MIME type
+					let mimeType = 'application/pdf';
+					if (['jpg', 'jpeg'].includes(ext)) mimeType = 'image/jpeg';
+					else if (ext === 'png') mimeType = 'image/png';
+					else if (ext === 'webp') mimeType = 'image/webp';
+					
+					const file = new File([data], fileName, { type: mimeType });
+					await pdfs.addFiles([file] as unknown as FileList);
 				}
-			} catch (err) {
-				console.error('Failed to open native dialog:', err);
-				// Fall back to HTML input
-				fileInput?.click();
 			}
-		} else {
-			// Use HTML file input in browser
-			fileInput?.click();
+		} catch (err) {
+			console.error('Failed to open file dialog:', err);
 		}
 	}
 </script>
@@ -106,7 +105,6 @@
 		accept={acceptedFormats}
 		multiple
 		class="hidden"
-		onchange={handleFileSelect}
 	/>
 
 	<div
