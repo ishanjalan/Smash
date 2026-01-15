@@ -1,12 +1,16 @@
 /**
- * PDF Processing Utilities using pdf-lib and PDF.js
+ * PDF Processing Utilities
  * 
  * All processing happens 100% client-side - files never leave the browser.
+ * Uses Ghostscript WASM for true PDF compression (preserves text),
+ * pdf-lib for manipulation, and PDF.js for rendering.
  */
 
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
-import { pdfs, type PDFItem, type ImageFormat, COMPRESSION_PRESETS } from '$lib/stores/pdfs.svelte';
+import { pdfs, type PDFItem, type ImageFormat, type CompressionPreset } from '$lib/stores/pdfs.svelte';
+import { compressWithGhostscript, preloadGhostscript } from './ghostscript';
+import { encryptPDF, decryptPDF } from './qpdf';
 
 // Configure PDF.js worker
 if (typeof window !== 'undefined') {
@@ -14,57 +18,35 @@ if (typeof window !== 'undefined') {
 }
 
 // ============================================
-// PDF COMPRESSION
+// PDF COMPRESSION (Using Ghostscript WASM)
 // ============================================
 
 interface CompressOptions {
-	quality: number; // 0-1
+	preset: CompressionPreset;
 	onProgress?: (progress: number) => void;
 }
 
+/**
+ * Compress PDF using Ghostscript WASM
+ * This preserves text selectability and provides true PDF compression
+ */
 export async function compressPDF(
 	file: File,
 	options: CompressOptions
 ): Promise<Blob> {
-	const arrayBuffer = await file.arrayBuffer();
-	
-	// Load with PDF.js for rendering
-	const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-	const newPdf = await PDFDocument.create();
-	
-	const totalPages = pdfDoc.numPages;
-	
-	for (let i = 1; i <= totalPages; i++) {
-		const page = await pdfDoc.getPage(i);
-		const viewport = page.getViewport({ scale: 1.5 }); // Slightly higher for quality
-		
-		// Render to canvas
-		const canvas = document.createElement('canvas');
-		canvas.width = viewport.width;
-		canvas.height = viewport.height;
-		const ctx = canvas.getContext('2d')!;
-		
-		await page.render({ canvasContext: ctx, viewport }).promise;
-		
-		// Convert to compressed JPEG
-		const imageData = canvas.toDataURL('image/jpeg', options.quality);
-		const imageBytes = await fetch(imageData).then(r => r.arrayBuffer());
-		
-		// Embed in new PDF
-		const image = await newPdf.embedJpg(imageBytes);
-		const newPage = newPdf.addPage([viewport.width, viewport.height]);
-		newPage.drawImage(image, {
-			x: 0,
-			y: 0,
-			width: viewport.width,
-			height: viewport.height
-		});
-		
-		options.onProgress?.(Math.round((i / totalPages) * 100));
-	}
-	
-	const pdfBytes = await newPdf.save();
-	return new Blob([pdfBytes], { type: 'application/pdf' });
+	const result = await compressWithGhostscript(file, {
+		preset: options.preset,
+		onProgress: options.onProgress
+	});
+	return result.blob;
+}
+
+// Preload Ghostscript when module loads (in browser only)
+if (typeof window !== 'undefined') {
+	// Delay preload to not block initial page load
+	setTimeout(() => {
+		preloadGhostscript();
+	}, 2000);
 }
 
 // ============================================
@@ -321,6 +303,258 @@ export async function generateThumbnail(file: File): Promise<string> {
 }
 
 // ============================================
+// ROTATE PDF PAGES
+// ============================================
+
+interface RotateOptions {
+	angle: 90 | 180 | 270;
+	pages?: number[]; // If not provided, rotate all pages
+	onProgress?: (progress: number) => void;
+}
+
+export async function rotatePDF(
+	file: File,
+	options: RotateOptions
+): Promise<Blob> {
+	const arrayBuffer = await file.arrayBuffer();
+	const pdf = await PDFDocument.load(arrayBuffer);
+	const totalPages = pdf.getPageCount();
+	const pagesToRotate = options.pages || Array.from({ length: totalPages }, (_, i) => i + 1);
+	
+	for (let i = 0; i < pagesToRotate.length; i++) {
+		const pageIndex = pagesToRotate[i] - 1;
+		if (pageIndex >= 0 && pageIndex < totalPages) {
+			const page = pdf.getPage(pageIndex);
+			const currentRotation = page.getRotation().angle;
+			page.setRotation(degrees(currentRotation + options.angle));
+		}
+		options.onProgress?.(Math.round(((i + 1) / pagesToRotate.length) * 100));
+	}
+	
+	const pdfBytes = await pdf.save();
+	return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// ============================================
+// DELETE PDF PAGES
+// ============================================
+
+interface DeletePagesOptions {
+	pages: number[]; // 1-indexed page numbers to delete
+	onProgress?: (progress: number) => void;
+}
+
+export async function deletePages(
+	file: File,
+	options: DeletePagesOptions
+): Promise<Blob> {
+	const arrayBuffer = await file.arrayBuffer();
+	const pdf = await PDFDocument.load(arrayBuffer);
+	
+	// Sort pages in descending order to delete from end first
+	const pagesToDelete = [...options.pages].sort((a, b) => b - a);
+	const totalPages = pdf.getPageCount();
+	
+	for (let i = 0; i < pagesToDelete.length; i++) {
+		const pageIndex = pagesToDelete[i] - 1;
+		if (pageIndex >= 0 && pageIndex < pdf.getPageCount()) {
+			pdf.removePage(pageIndex);
+		}
+		options.onProgress?.(Math.round(((i + 1) / pagesToDelete.length) * 100));
+	}
+	
+	const pdfBytes = await pdf.save();
+	return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// ============================================
+// REORDER PDF PAGES
+// ============================================
+
+interface ReorderOptions {
+	newOrder: number[]; // Array of 1-indexed page numbers in new order
+	onProgress?: (progress: number) => void;
+}
+
+export async function reorderPages(
+	file: File,
+	options: ReorderOptions
+): Promise<Blob> {
+	const arrayBuffer = await file.arrayBuffer();
+	const srcPdf = await PDFDocument.load(arrayBuffer);
+	const newPdf = await PDFDocument.create();
+	
+	for (let i = 0; i < options.newOrder.length; i++) {
+		const pageIndex = options.newOrder[i] - 1;
+		if (pageIndex >= 0 && pageIndex < srcPdf.getPageCount()) {
+			const [copiedPage] = await newPdf.copyPages(srcPdf, [pageIndex]);
+			newPdf.addPage(copiedPage);
+		}
+		options.onProgress?.(Math.round(((i + 1) / options.newOrder.length) * 100));
+	}
+	
+	const pdfBytes = await newPdf.save();
+	return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// ============================================
+// ADD PAGE NUMBERS
+// ============================================
+
+interface PageNumberOptions {
+	position: 'bottom-center' | 'bottom-right' | 'top-center' | 'top-right';
+	startNumber?: number;
+	format?: string; // e.g., "Page {n}" or just "{n}"
+	onProgress?: (progress: number) => void;
+}
+
+export async function addPageNumbers(
+	file: File,
+	options: PageNumberOptions
+): Promise<Blob> {
+	const arrayBuffer = await file.arrayBuffer();
+	const pdf = await PDFDocument.load(arrayBuffer);
+	const font = await pdf.embedFont(StandardFonts.Helvetica);
+	const fontSize = 10;
+	const { startNumber = 1, format = '{n}', position } = options;
+	
+	const pages = pdf.getPages();
+	
+	for (let i = 0; i < pages.length; i++) {
+		const page = pages[i];
+		const { width, height } = page.getSize();
+		const pageNum = startNumber + i;
+		const text = format.replace('{n}', pageNum.toString());
+		const textWidth = font.widthOfTextAtSize(text, fontSize);
+		
+		let x: number, y: number;
+		
+		switch (position) {
+			case 'bottom-center':
+				x = (width - textWidth) / 2;
+				y = 30;
+				break;
+			case 'bottom-right':
+				x = width - textWidth - 40;
+				y = 30;
+				break;
+			case 'top-center':
+				x = (width - textWidth) / 2;
+				y = height - 30;
+				break;
+			case 'top-right':
+				x = width - textWidth - 40;
+				y = height - 30;
+				break;
+		}
+		
+		page.drawText(text, {
+			x,
+			y,
+			size: fontSize,
+			font,
+			color: rgb(0.3, 0.3, 0.3)
+		});
+		
+		options.onProgress?.(Math.round(((i + 1) / pages.length) * 100));
+	}
+	
+	const pdfBytes = await pdf.save();
+	return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// ============================================
+// ADD WATERMARK
+// ============================================
+
+interface WatermarkOptions {
+	text: string;
+	opacity: number; // 0-100
+	fontSize?: number;
+	angle?: number; // Rotation angle in degrees
+	onProgress?: (progress: number) => void;
+}
+
+export async function addWatermark(
+	file: File,
+	options: WatermarkOptions
+): Promise<Blob> {
+	const arrayBuffer = await file.arrayBuffer();
+	const pdf = await PDFDocument.load(arrayBuffer);
+	const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+	const { text, opacity, fontSize = 60, angle = -45 } = options;
+	
+	const pages = pdf.getPages();
+	
+	for (let i = 0; i < pages.length; i++) {
+		const page = pages[i];
+		const { width, height } = page.getSize();
+		const textWidth = font.widthOfTextAtSize(text, fontSize);
+		
+		// Center the watermark
+		const x = (width - textWidth) / 2;
+		const y = height / 2;
+		
+		page.drawText(text, {
+			x,
+			y,
+			size: fontSize,
+			font,
+			color: rgb(0.7, 0.7, 0.7),
+			opacity: opacity / 100,
+			rotate: degrees(angle)
+		});
+		
+		options.onProgress?.(Math.round(((i + 1) / pages.length) * 100));
+	}
+	
+	const pdfBytes = await pdf.save();
+	return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// ============================================
+// PASSWORD PROTECT PDF
+// ============================================
+
+interface ProtectOptions {
+	userPassword: string;
+	ownerPassword?: string;
+	onProgress?: (progress: number) => void;
+}
+
+export async function protectPDF(
+	file: File,
+	options: ProtectOptions
+): Promise<Blob> {
+	const result = await encryptPDF(file, {
+		userPassword: options.userPassword,
+		ownerPassword: options.ownerPassword,
+		onProgress: options.onProgress
+	});
+	return result.blob;
+}
+
+// ============================================
+// UNLOCK PDF
+// ============================================
+
+interface UnlockOptions {
+	password: string;
+	onProgress?: (progress: number) => void;
+}
+
+export async function unlockPDF(
+	file: File,
+	options: UnlockOptions
+): Promise<Blob> {
+	const result = await decryptPDF(file, {
+		password: options.password,
+		onProgress: options.onProgress
+	});
+	return result.blob;
+}
+
+// ============================================
 // PROCESS QUEUE
 // ============================================
 
@@ -368,9 +602,15 @@ async function processItem(item: PDFItem) {
 		
 		switch (tool) {
 			case 'compress':
+				pdfs.updateItem(item.id, { progressStage: 'Loading compression engine...' });
 				result = await compressPDF(item.file, {
-					quality: COMPRESSION_PRESETS[settings.compressionLevel].quality,
-					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+					preset: settings.compressionPreset,
+					onProgress: (p) => {
+						pdfs.updateItem(item.id, { 
+							progress: p,
+							progressStage: p < 30 ? 'Initializing...' : p < 80 ? 'Compressing...' : 'Finalizing...'
+						});
+					}
 				});
 				break;
 				
@@ -403,11 +643,70 @@ async function processItem(item: PDFItem) {
 				result = await splitPDF(item.file, splitOptions);
 				break;
 				
+			case 'rotate':
+				result = await rotatePDF(item.file, {
+					angle: settings.rotationAngle,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'delete-pages':
+				const deletePageCount = await getPageCount(item.file);
+				const pagesToDelete = parsePageRangeHelper(settings.splitRange, deletePageCount);
+				result = await deletePages(item.file, {
+					pages: pagesToDelete,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'reorder':
+				// For reorder, we need the selected pages as the new order
+				// This will be handled by the UI passing the new order
+				const reorderPageCount = await getPageCount(item.file);
+				const newOrder = item.selectedPages || Array.from({ length: reorderPageCount }, (_, i) => i + 1);
+				result = await reorderPages(item.file, {
+					newOrder,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
 			case 'pdf-to-images':
 				result = await pdfToImages(item.file, {
 					format: settings.imageFormat,
 					dpi: settings.imageDPI,
 					quality: settings.imageQuality,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'add-page-numbers':
+				result = await addPageNumbers(item.file, {
+					position: settings.pageNumberPosition,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'watermark':
+				result = await addWatermark(item.file, {
+					text: settings.watermarkText || 'WATERMARK',
+					opacity: settings.watermarkOpacity,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'protect':
+				pdfs.updateItem(item.id, { progressStage: 'Loading encryption engine...' });
+				result = await protectPDF(item.file, {
+					userPassword: settings.userPassword,
+					ownerPassword: settings.ownerPassword || settings.userPassword,
+					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
+				});
+				break;
+				
+			case 'unlock':
+				pdfs.updateItem(item.id, { progressStage: 'Loading decryption engine...' });
+				result = await unlockPDF(item.file, {
+					password: settings.userPassword,
 					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
 				});
 				break;
@@ -561,10 +860,24 @@ export function getOutputFilename(originalName: string, tool: string, index?: nu
 			return `merged-${Date.now()}.pdf`;
 		case 'split':
 			return index !== undefined ? `${baseName}-part${index + 1}.pdf` : `${baseName}-split.pdf`;
+		case 'rotate':
+			return `${baseName}-rotated.pdf`;
+		case 'delete-pages':
+			return `${baseName}-edited.pdf`;
+		case 'reorder':
+			return `${baseName}-reordered.pdf`;
 		case 'pdf-to-images':
 			return index !== undefined ? `${baseName}-page${index + 1}` : baseName;
 		case 'images-to-pdf':
 			return `images-${Date.now()}.pdf`;
+		case 'add-page-numbers':
+			return `${baseName}-numbered.pdf`;
+		case 'watermark':
+			return `${baseName}-watermarked.pdf`;
+		case 'protect':
+			return `${baseName}-protected.pdf`;
+		case 'unlock':
+			return `${baseName}-unlocked.pdf`;
 		default:
 			return `${baseName}-processed.pdf`;
 	}

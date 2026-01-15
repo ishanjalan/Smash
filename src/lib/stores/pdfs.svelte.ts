@@ -1,7 +1,19 @@
 export type PDFStatus = 'pending' | 'processing' | 'completed' | 'error';
-export type PDFTool = 'compress' | 'merge' | 'split' | 'pdf-to-images' | 'images-to-pdf';
+export type PDFTool = 
+	| 'compress' 
+	| 'merge' 
+	| 'split' 
+	| 'rotate'
+	| 'delete-pages'
+	| 'reorder'
+	| 'pdf-to-images' 
+	| 'images-to-pdf'
+	| 'add-page-numbers'
+	| 'watermark'
+	| 'protect'
+	| 'unlock';
 export type ImageFormat = 'png' | 'jpg' | 'webp';
-export type CompressionLevel = 'low' | 'medium' | 'high' | 'maximum';
+export type CompressionPreset = 'screen' | 'ebook' | 'printer' | 'prepress';
 
 export interface PDFItem {
 	id: string;
@@ -31,8 +43,8 @@ export interface PDFItem {
 
 export interface PDFSettings {
 	tool: PDFTool;
-	// Compression settings
-	compressionLevel: CompressionLevel;
+	// Compression settings (Ghostscript presets)
+	compressionPreset: CompressionPreset;
 	// Image export settings
 	imageFormat: ImageFormat;
 	imageQuality: number; // 0-100
@@ -41,14 +53,48 @@ export interface PDFSettings {
 	splitMode: 'range' | 'extract' | 'every-n';
 	splitEveryN: number;
 	splitRange: string; // e.g., "1-5, 8, 10-12"
+	// Rotate settings
+	rotationAngle: 90 | 180 | 270;
+	// Protection settings
+	userPassword: string;
+	ownerPassword: string;
+	// Watermark settings
+	watermarkText: string;
+	watermarkOpacity: number; // 0-100
+	// Page numbers settings
+	pageNumberPosition: 'bottom-center' | 'bottom-right' | 'top-center' | 'top-right';
 }
 
-// Compression presets
+// Ghostscript compression presets (real PDF compression, preserves text)
 export const COMPRESSION_PRESETS = {
-	low: { label: 'Light', desc: 'Minimal quality loss', quality: 0.85 },
-	medium: { label: 'Balanced', desc: 'Good balance', quality: 0.65 },
-	high: { label: 'Strong', desc: 'Smaller files', quality: 0.45 },
-	maximum: { label: 'Maximum', desc: 'Smallest size', quality: 0.25 }
+	screen: { 
+		label: 'Screen', 
+		desc: 'Smallest (72 DPI)', 
+		icon: 'Monitor',
+		dpi: 72,
+		gsFlag: '/screen'
+	},
+	ebook: { 
+		label: 'Ebook', 
+		desc: 'Balanced (150 DPI)', 
+		icon: 'BookOpen',
+		dpi: 150,
+		gsFlag: '/ebook'
+	},
+	printer: { 
+		label: 'Printer', 
+		desc: 'High quality (300 DPI)', 
+		icon: 'Printer',
+		dpi: 300,
+		gsFlag: '/printer'
+	},
+	prepress: { 
+		label: 'Prepress', 
+		desc: 'Maximum quality', 
+		icon: 'FileCheck',
+		dpi: 300,
+		gsFlag: '/prepress'
+	}
 } as const;
 
 // DPI options for image export
@@ -65,55 +111,136 @@ export const IMAGE_FORMAT_OPTIONS = [
 	{ value: 'webp' as const, label: 'WebP', desc: 'Modern format' }
 ];
 
-// Tool definitions
+// Tool definitions - organized by category
 export const TOOLS = [
+	// Core tools
 	{ 
 		value: 'compress' as const, 
 		label: 'Compress', 
 		desc: 'Reduce PDF file size',
 		icon: 'Minimize2',
-		accepts: '.pdf'
+		accepts: '.pdf',
+		category: 'core'
 	},
 	{ 
 		value: 'merge' as const, 
 		label: 'Merge', 
 		desc: 'Combine multiple PDFs',
 		icon: 'Layers',
-		accepts: '.pdf'
+		accepts: '.pdf',
+		category: 'core'
 	},
 	{ 
 		value: 'split' as const, 
 		label: 'Split', 
 		desc: 'Extract pages from PDF',
 		icon: 'Scissors',
-		accepts: '.pdf'
+		accepts: '.pdf',
+		category: 'core'
 	},
+	// Page manipulation
+	{ 
+		value: 'rotate' as const, 
+		label: 'Rotate', 
+		desc: 'Rotate PDF pages',
+		icon: 'RotateCw',
+		accepts: '.pdf',
+		category: 'pages'
+	},
+	{ 
+		value: 'delete-pages' as const, 
+		label: 'Delete Pages', 
+		desc: 'Remove pages from PDF',
+		icon: 'Trash2',
+		accepts: '.pdf',
+		category: 'pages'
+	},
+	{ 
+		value: 'reorder' as const, 
+		label: 'Reorder', 
+		desc: 'Rearrange PDF pages',
+		icon: 'ArrowUpDown',
+		accepts: '.pdf',
+		category: 'pages'
+	},
+	// Conversion
 	{ 
 		value: 'pdf-to-images' as const, 
 		label: 'PDF → Images', 
 		desc: 'Convert pages to images',
 		icon: 'Image',
-		accepts: '.pdf'
+		accepts: '.pdf',
+		category: 'convert'
 	},
 	{ 
 		value: 'images-to-pdf' as const, 
 		label: 'Images → PDF', 
 		desc: 'Create PDF from images',
 		icon: 'FileText',
-		accepts: '.jpg,.jpeg,.png,.webp'
+		accepts: '.jpg,.jpeg,.png,.webp',
+		category: 'convert'
+	},
+	// Editing
+	{ 
+		value: 'add-page-numbers' as const, 
+		label: 'Page Numbers', 
+		desc: 'Add page numbers to PDF',
+		icon: 'Hash',
+		accepts: '.pdf',
+		category: 'edit'
+	},
+	{ 
+		value: 'watermark' as const, 
+		label: 'Watermark', 
+		desc: 'Add text watermark',
+		icon: 'Stamp',
+		accepts: '.pdf',
+		category: 'edit'
+	},
+	// Security
+	{ 
+		value: 'protect' as const, 
+		label: 'Protect', 
+		desc: 'Add password protection',
+		icon: 'Lock',
+		accepts: '.pdf',
+		category: 'security'
+	},
+	{ 
+		value: 'unlock' as const, 
+		label: 'Unlock', 
+		desc: 'Remove password protection',
+		icon: 'Unlock',
+		accepts: '.pdf',
+		category: 'security'
 	}
+] as const;
+
+// Tool categories for organized display
+export const TOOL_CATEGORIES = [
+	{ id: 'core', label: 'Core Tools' },
+	{ id: 'pages', label: 'Page Tools' },
+	{ id: 'convert', label: 'Convert' },
+	{ id: 'edit', label: 'Edit' },
+	{ id: 'security', label: 'Security' }
 ] as const;
 
 // Default settings
 const DEFAULT_SETTINGS: PDFSettings = {
 	tool: 'compress',
-	compressionLevel: 'medium',
+	compressionPreset: 'ebook',
 	imageFormat: 'png',
 	imageQuality: 85,
 	imageDPI: 150,
 	splitMode: 'range',
 	splitEveryN: 1,
-	splitRange: ''
+	splitRange: '',
+	rotationAngle: 90,
+	userPassword: '',
+	ownerPassword: '',
+	watermarkText: '',
+	watermarkOpacity: 30,
+	pageNumberPosition: 'bottom-center'
 };
 
 // Load settings from localStorage

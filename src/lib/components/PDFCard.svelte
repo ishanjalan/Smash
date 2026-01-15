@@ -2,6 +2,7 @@
 	import { pdfs, formatBytes, type PDFItem } from '$lib/stores/pdfs.svelte';
 	import { downloadFile, getOutputFilename, processFiles } from '$lib/utils/pdf';
 	import { downloadMultipleFiles } from '$lib/utils/download';
+	import CompareSlider from './CompareSlider.svelte';
 	import {
 		X,
 		Download,
@@ -21,9 +22,10 @@
 		item: PDFItem;
 		index: number;
 		canReorder?: boolean;
+		showCompare?: boolean;
 	}
 
-	let { item, index, canReorder = false }: Props = $props();
+	let { item, index, canReorder = false, showCompare = false }: Props = $props();
 
 	const savings = $derived(
 		item.processedSize ? Math.round((1 - item.processedSize / item.originalSize) * 100) : 0
@@ -197,19 +199,30 @@
 			</div>
 
 		{:else if item.status === 'completed'}
-			<div class="flex items-center justify-between">
-				{#if item.processedBlobs}
-					<span class="text-xs text-surface-400">
-						{item.processedBlobs.length} files
-					</span>
+			<div class="space-y-3">
+				<!-- Size comparison -->
+				{#if showCompare && item.processedSize && pdfs.settings.tool === 'compress'}
+					<CompareSlider 
+						originalSize={item.originalSize} 
+						newSize={item.processedSize} 
+						label=""
+					/>
 				{/if}
-				<button
-					onclick={handleDownload}
-					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-accent-start to-accent-end text-white hover:opacity-90 transition-opacity ml-auto"
-				>
-					<Download class="h-3.5 w-3.5" />
-					Download
-				</button>
+
+				<div class="flex items-center justify-between">
+					{#if item.processedBlobs}
+						<span class="text-xs text-surface-400">
+							{item.processedBlobs.length} files
+						</span>
+					{/if}
+					<button
+						onclick={handleDownload}
+						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-accent-start to-accent-end text-white hover:opacity-90 transition-opacity ml-auto"
+					>
+						<Download class="h-3.5 w-3.5" />
+						Download
+					</button>
+				</div>
 			</div>
 		{/if}
 	</div>

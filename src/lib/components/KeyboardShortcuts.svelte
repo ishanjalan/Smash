@@ -10,11 +10,15 @@
 	let { show = $bindable() }: Props = $props();
 
 	const shortcuts = [
-		{ keys: ['1'], description: 'Compress tool' },
-		{ keys: ['2'], description: 'Merge tool' },
-		{ keys: ['3'], description: 'Split tool' },
-		{ keys: ['4'], description: 'PDF to Images' },
-		{ keys: ['5'], description: 'Images to PDF' },
+		{ keys: ['1'], description: 'Compress' },
+		{ keys: ['2'], description: 'Merge' },
+		{ keys: ['3'], description: 'Split' },
+		{ keys: ['4'], description: 'Rotate' },
+		{ keys: ['5'], description: 'Delete Pages' },
+		{ keys: ['6'], description: 'Reorder' },
+		{ keys: ['7'], description: 'PDF → Images' },
+		{ keys: ['8'], description: 'Images → PDF' },
+		{ keys: ['9'], description: 'Page Numbers' },
 		{ keys: ['⌘/Ctrl', 'Shift', 'D'], description: 'Download all as ZIP' },
 		{ keys: ['⌘/Ctrl', 'V'], description: 'Paste from clipboard' },
 		{ keys: ['Escape'], description: 'Clear all / Close modal' },

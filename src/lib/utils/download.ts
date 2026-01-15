@@ -18,6 +18,43 @@ export function downloadPDF(item: PDFItem) {
 	URL.revokeObjectURL(url);
 }
 
+/**
+ * Download all completed items - single file direct download, multiple files as ZIP
+ */
+export async function downloadAll(items: PDFItem[], tool: string) {
+	const completedItems = items.filter(
+		i => i.status === 'completed' && (i.processedBlob || i.processedBlobs)
+	);
+	
+	if (completedItems.length === 0) return;
+	
+	// Single item - direct download
+	if (completedItems.length === 1) {
+		const item = completedItems[0];
+		if (item.processedBlob) {
+			const filename = getOutputFilename(item.name, tool);
+			const url = URL.createObjectURL(item.processedBlob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} else if (item.processedBlobs) {
+			await downloadMultipleFiles(
+				item.processedBlobs, 
+				item.name.replace(/\.[^/.]+$/, ''),
+				tool === 'pdf-to-images' ? '.png' : '.pdf'
+			);
+		}
+		return;
+	}
+	
+	// Multiple items - download as ZIP
+	await downloadAllAsZip(completedItems, tool);
+}
+
 export async function downloadAllAsZip(items: PDFItem[], tool: string) {
 	const zip = new JSZip();
 	
