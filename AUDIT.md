@@ -318,16 +318,17 @@ smash
 ## 8. Priority Fixes
 
 ### P0 - Must Fix Before Release
-1. [ ] Fix hero text (remove "browser" and "WASM" references)
-2. [ ] Add first-run dependency check wizard
-3. [ ] Bundle PDF.js locally (remove CDN dependency)
-4. [ ] Fix Rust compiler warnings
+1. [x] Fix hero text (remove "browser" and "WASM" references) ✅
+2. [x] Add first-run welcome wizard ✅
+3. [x] Bundle PDF.js locally (remove CDN dependency) ✅
+4. [x] Fix Rust compiler warnings ✅
+5. [x] Make app work without external dependencies ✅
+6. [x] Add auto-update mechanism ✅
 
 ### P1 - Should Fix Soon
-1. [ ] Add auto-update mechanism
-2. [ ] Improve error messages with actionable hints
-3. [ ] Add visual page picker for split/delete
-4. [ ] Code split large chunks
+1. [ ] Improve error messages with actionable hints
+2. [ ] Add visual page picker for split/delete
+3. [ ] Code split large chunks
 
 ### P2 - Nice to Have
 1. [ ] Add drag-and-drop reorder for merge

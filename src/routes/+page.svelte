@@ -7,6 +7,7 @@
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import SetupWizard from '$lib/components/SetupWizard.svelte';
+	import UpdateChecker from '$lib/components/UpdateChecker.svelte';
 	import Toast, { toast } from '$lib/components/Toast.svelte';
 	import { pdfs, formatBytes, TOOLS } from '$lib/stores/pdfs.svelte';
 	import { downloadAllAsZip } from '$lib/utils/download';
@@ -263,5 +264,7 @@
 <KeyboardShortcuts bind:show={showShortcuts} />
 
 <SetupWizard />
+
+<UpdateChecker />
 
 <Toast />

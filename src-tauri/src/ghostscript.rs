@@ -278,15 +278,7 @@ pub fn extract_pages(input: &str, output: &str, start: u32, end: u32) -> Result<
 
 /// Extract specific pages from a PDF (non-contiguous)
 pub fn extract_page_list(input: &str, output: &str, pages: &[u32]) -> Result<(), String> {
-    let gs = get_gs()?;
-    
-    // For non-contiguous pages, we need to use a more complex approach
-    // Create a PostScript command to select specific pages
-    let page_list: Vec<String> = pages.iter().map(|p| p.to_string()).collect();
-    let pages_str = page_list.join(",");
-    
-    // Use pdfseparate-like approach with Ghostscript
-    // For simplicity, extract each page and merge them
+    // For non-contiguous pages, extract each page individually and merge them
     let temp_dir = tempfile::tempdir()
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
     

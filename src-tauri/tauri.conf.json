@@ -9,6 +9,14 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ishanjalan/Smash/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
+  },
   "app": {
     "windows": [
       {

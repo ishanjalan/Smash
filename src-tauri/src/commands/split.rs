@@ -3,7 +3,7 @@
 //! Split PDFs by page range, extract specific pages, or split every N pages.
 
 use crate::ghostscript;
-use super::utils::{SplitResult, SplitOptions, get_file_size, validate_pdf};
+use super::utils::{SplitResult, SplitOptions, validate_pdf};
 use std::path::Path;
 
 /// Split a PDF into multiple files

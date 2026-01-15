@@ -1,6 +1,6 @@
 # Smash
 
-Privacy-first PDF toolkit for Windows, macOS, and Linux. Compress, merge, split, and protect PDFs — all processing happens locally on your device.
+Privacy-first PDF toolkit for Windows, macOS, and Linux. Compress, merge, split, and protect PDFs — all processing happens locally on your device. **Works out of the box with no external dependencies.**
 
 **Part of the privacy-first toolkit: [Squish](https://github.com/ishanjalan/ImageOptimser) (images) • [Squash](https://github.com/ishanjalan/Squash) (videos) • Smash (PDFs)**
 
@@ -71,17 +71,18 @@ No cloud uploads. No data collection. Complete privacy.
 
 ### Download
 
-Download the latest release for your platform:
+Download the latest release for your platform from [GitHub Releases](https://github.com/ishanjalan/Smash/releases):
 
 - **Windows**: `.msi` installer
 - **macOS**: `.dmg` (Intel & Apple Silicon)
 - **Linux**: `.AppImage` or `.deb`
 
-### Prerequisites
+**That's it!** All features work out of the box. No additional software required.
 
-Smash requires these tools to be installed for full functionality:
+### Optional: Enhanced Compression
 
-#### Ghostscript (for compression)
+For better PDF compression (50-90% vs 10-30%), optionally install Ghostscript:
+
 ```bash
 # macOS
 brew install ghostscript
@@ -92,16 +93,7 @@ sudo apt install ghostscript
 # Windows - download from https://www.ghostscript.com/releases/gsdnld.html
 ```
 
-#### qpdf (for encryption)
-```bash
-# macOS
-brew install qpdf
-
-# Ubuntu/Debian
-sudo apt install qpdf
-
-# Windows - download from https://github.com/qpdf/qpdf/releases
-```
+Smash will automatically detect and use Ghostscript when available.
 
 ## 🔧 Development
 

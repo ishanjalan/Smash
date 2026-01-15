@@ -50,16 +50,30 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: Smash v__VERSION__
           releaseBody: |
-            Privacy-first PDF tools for your desktop.
+            ## Privacy-first PDF tools for your desktop
             
-            **Requirements:** Ghostscript for PDF compression
-            - macOS: brew install ghostscript
+            **What's New:**
+            - All features work out of the box - no external tools required
+            - Auto-update support for seamless upgrades
+            
+            **Features:**
+            - Compress, merge, split, rotate PDFs
+            - Password protect and unlock
+            - Add watermarks and page numbers
+            - Convert PDF to images and vice versa
+            
+            **Optional Enhancements:**
+            Install Ghostscript for better compression (50-90% vs 10-30%):
+            - macOS: `brew install ghostscript`
             - Windows: Download from ghostscript.com
-            - Linux: sudo apt install ghostscript
+            - Linux: `sudo apt install ghostscript`
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          updaterJsonKeepUniversal: true

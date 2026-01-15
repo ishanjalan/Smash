@@ -32,6 +32,10 @@
       ]
     },
     "shell:default",
-    "shell:allow-open"
+    "shell:allow-open",
+    "updater:default",
+    "process:default",
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }

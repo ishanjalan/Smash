@@ -142,6 +142,7 @@ pub fn decrypt(input: &str, output: &str, password: &str) -> Result<(), String> 
 }
 
 /// Optimize a PDF (linearize for web, compress streams)
+#[allow(dead_code)]
 pub fn optimize(input: &str, output: &str) -> Result<(), String> {
     let qpdf = get_qpdf()?;
     
@@ -164,6 +165,7 @@ pub fn optimize(input: &str, output: &str) -> Result<(), String> {
 }
 
 /// Check if a PDF is encrypted
+#[allow(dead_code)]
 pub fn is_encrypted(input: &str) -> Result<bool, String> {
     let qpdf = get_qpdf()?;
     
