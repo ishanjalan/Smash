@@ -455,7 +455,7 @@
 											<Check class="h-4 w-4 text-white" />
 										</div>
 									{:else}
-										<div class="w-6 h-6 border-2 border-white/60 rounded bg-black/20 group-hover:border-white transition-colors" />
+										<div class="w-6 h-6 border-2 border-white/60 rounded bg-black/20 group-hover:border-white transition-colors"></div>
 									{/if}
 								</div>
 							{/if}
