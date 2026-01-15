@@ -112,6 +112,15 @@ pub fn get_version() -> Result<String, String> {
 pub fn compress(input: &str, output: &str, preset: &str) -> Result<(), String> {
     let gs = get_gs()?;
     
+    // DPI settings per preset
+    let (color_dpi, gray_dpi, mono_dpi) = match preset {
+        "screen" => (72, 72, 150),
+        "ebook" => (150, 150, 300),
+        "printer" => (300, 300, 600),
+        "prepress" => (300, 300, 1200),
+        _ => (150, 150, 300), // default to ebook
+    };
+    
     let status = Command::new(&gs)
         .args([
             "-sDEVICE=pdfwrite",
@@ -120,9 +129,26 @@ pub fn compress(input: &str, output: &str, preset: &str) -> Result<(), String> {
             "-dNOPAUSE",
             "-dQUIET",
             "-dBATCH",
+            // Image compression
             "-dDetectDuplicateImages=true",
+            "-dDownsampleColorImages=true",
+            "-dDownsampleGrayImages=true",
+            "-dDownsampleMonoImages=true",
+            "-dColorImageDownsampleType=/Bicubic",
+            "-dGrayImageDownsampleType=/Bicubic",
+            "-dMonoImageDownsampleType=/Bicubic",
+            &format!("-dColorImageResolution={}", color_dpi),
+            &format!("-dGrayImageResolution={}", gray_dpi),
+            &format!("-dMonoImageResolution={}", mono_dpi),
+            // Font optimization
             "-dCompressFonts=true",
             "-dSubsetFonts=true",
+            "-dEmbedAllFonts=true",
+            // General optimization
+            "-dOptimize=true",
+            "-dFastWebView=false",
+            "-dPrinted=false",
+            // Output
             &format!("-sOutputFile={}", output),
             input,
         ])
