@@ -7,13 +7,13 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>Squash - Video Compressor</title>
-	<meta property="og:title" content="Squash - Video Compressor" />
-	<meta property="og:description" content="Free online video compressor - compress MP4, WebM, MOV files instantly in your browser. 100% private." />
+	<title>Smash - Privacy-First PDF Tools</title>
+	<meta property="og:title" content="Smash - Privacy-First PDF Tools" />
+	<meta property="og:description" content="Free online PDF tools - compress, merge, split, protect PDFs instantly in your browser. 100% private, files never leave your device." />
 	<meta property="og:type" content="website" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Squash - Video Compressor" />
-	<meta name="twitter:description" content="Free online video compressor - compress MP4, WebM, MOV files instantly in your browser. 100% private." />
+	<meta name="twitter:title" content="Smash - Privacy-First PDF Tools" />
+	<meta name="twitter:description" content="Free online PDF tools - compress, merge, split, protect PDFs instantly in your browser. 100% private, files never leave your device." />
 </svelte:head>
 
 {@render children()}

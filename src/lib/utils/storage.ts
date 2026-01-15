@@ -1,20 +1,20 @@
 /**
- * IndexedDB Storage for Large Video Files
- * Prevents memory issues with large videos by storing them in IndexedDB
+ * IndexedDB Storage for Large PDF Files
+ * Prevents memory issues with large PDFs by storing them in IndexedDB
  */
 
 import { openDB, type IDBPDatabase } from 'idb';
 
-const DB_NAME = 'squash-storage';
+const DB_NAME = 'smash-storage';
 const DB_VERSION = 1;
 
-interface SquashDB {
-	videos: {
+interface SmashDB {
+	pdfs: {
 		key: string;
 		value: {
 			id: string;
 			originalBlob: Blob;
-			compressedBlob?: Blob;
+			processedBlob?: Blob;
 			metadata: {
 				name: string;
 				size: number;
@@ -30,16 +30,16 @@ interface SquashDB {
 	};
 }
 
-let dbInstance: IDBPDatabase<SquashDB> | null = null;
+let dbInstance: IDBPDatabase<SmashDB> | null = null;
 
-async function getDB(): Promise<IDBPDatabase<SquashDB>> {
+async function getDB(): Promise<IDBPDatabase<SmashDB>> {
 	if (dbInstance) return dbInstance;
 
-	dbInstance = await openDB<SquashDB>(DB_NAME, DB_VERSION, {
+	dbInstance = await openDB<SmashDB>(DB_NAME, DB_VERSION, {
 		upgrade(db) {
-			// Videos store
-			if (!db.objectStoreNames.contains('videos')) {
-				db.createObjectStore('videos', { keyPath: 'id' });
+			// PDFs store
+			if (!db.objectStoreNames.contains('pdfs')) {
+				db.createObjectStore('pdfs', { keyPath: 'id' });
 			}
 			// Settings store
 			if (!db.objectStoreNames.contains('settings')) {
@@ -58,17 +58,17 @@ export function isLargeFile(size: number): boolean {
 	return size > LARGE_FILE_THRESHOLD;
 }
 
-export async function storeVideo(
+export async function storePDF(
 	id: string,
 	file: File,
-	compressedBlob?: Blob
+	processedBlob?: Blob
 ): Promise<void> {
 	const db = await getDB();
 
-	await db.put('videos', {
+	await db.put('pdfs', {
 		id,
 		originalBlob: file,
-		compressedBlob,
+		processedBlob,
 		metadata: {
 			name: file.name,
 			size: file.size,
@@ -79,72 +79,72 @@ export async function storeVideo(
 	});
 }
 
-export async function getVideoBlob(id: string): Promise<Blob | null> {
+export async function getPDFBlob(id: string): Promise<Blob | null> {
 	const db = await getDB();
-	const record = await db.get('videos', id);
+	const record = await db.get('pdfs', id);
 	return record?.originalBlob ?? null;
 }
 
-export async function getCompressedBlob(id: string): Promise<Blob | null> {
+export async function getProcessedBlob(id: string): Promise<Blob | null> {
 	const db = await getDB();
-	const record = await db.get('videos', id);
-	return record?.compressedBlob ?? null;
+	const record = await db.get('pdfs', id);
+	return record?.processedBlob ?? null;
 }
 
-export async function updateCompressedBlob(id: string, blob: Blob): Promise<void> {
+export async function updateProcessedBlob(id: string, blob: Blob): Promise<void> {
 	const db = await getDB();
-	const record = await db.get('videos', id);
+	const record = await db.get('pdfs', id);
 	if (record) {
-		record.compressedBlob = blob;
-		await db.put('videos', record);
+		record.processedBlob = blob;
+		await db.put('pdfs', record);
 	}
 }
 
-export async function deleteVideo(id: string): Promise<void> {
+export async function deletePDF(id: string): Promise<void> {
 	const db = await getDB();
-	await db.delete('videos', id);
+	await db.delete('pdfs', id);
 }
 
-export async function clearAllVideos(): Promise<void> {
+export async function clearAllPDFs(): Promise<void> {
 	const db = await getDB();
-	await db.clear('videos');
+	await db.clear('pdfs');
 }
 
 export async function getStorageUsage(): Promise<{
 	count: number;
 	totalSize: number;
-	compressedSize: number;
+	processedSize: number;
 }> {
 	const db = await getDB();
-	const all = await db.getAll('videos');
+	const all = await db.getAll('pdfs');
 
 	let totalSize = 0;
-	let compressedSize = 0;
+	let processedSize = 0;
 
 	for (const record of all) {
 		totalSize += record.originalBlob.size;
-		if (record.compressedBlob) {
-			compressedSize += record.compressedBlob.size;
+		if (record.processedBlob) {
+			processedSize += record.processedBlob.size;
 		}
 	}
 
 	return {
 		count: all.length,
 		totalSize,
-		compressedSize
+		processedSize
 	};
 }
 
 // Cleanup old entries (older than 24 hours)
 export async function cleanupOldEntries(): Promise<number> {
 	const db = await getDB();
-	const all = await db.getAll('videos');
+	const all = await db.getAll('pdfs');
 	const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 
 	let deleted = 0;
 	for (const record of all) {
 		if (record.createdAt < cutoff) {
-			await db.delete('videos', record.id);
+			await db.delete('pdfs', record.id);
 			deleted++;
 		}
 	}
