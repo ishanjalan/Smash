@@ -13,9 +13,10 @@
 		Loader2,
 		FileText,
 		ChevronsLeft,
-		ChevronsRight
+		ChevronsRight,
+		Sidebar
 	} from 'lucide-svelte';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 
 	interface Props {
@@ -27,7 +28,7 @@
 
 	// Constants
 	const THUMBNAILS_PER_PAGE = 50; // Pagination for thumbnail grid
-	const MAX_SIDEBAR_PAGES = 100; // Don't show sidebar for docs larger than this
+	const THUMBNAIL_BATCH_SIZE = 20; // How many thumbnails to load at once
 
 	// View state
 	let currentPage = $state(1);
@@ -37,6 +38,7 @@
 	let selectedPages = $state<Set<number>>(new Set());
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
+	let sidebarVisible = $state(true);
 
 	// Pagination for thumbnail grid
 	let thumbnailPage = $state(0);
@@ -56,8 +58,8 @@
 	// PDF document reference
 	let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null;
 
-	// Show sidebar only for smaller documents
-	const showSidebar = $derived(totalPages <= MAX_SIDEBAR_PAGES);
+	// Sidebar scroll container ref
+	let sidebarScrollContainer: HTMLDivElement | null = null;
 
 	// Tool-specific behavior
 	const isPageSelectionTool = $derived(
@@ -76,15 +78,10 @@
 		return pages;
 	});
 
-	// Sidebar pages (limited)
-	const sidebarPages = $derived(() => {
-		if (!showSidebar) return [];
-		// Show pages around current page
-		const buffer = 10;
-		const start = Math.max(1, currentPage - buffer);
-		const end = Math.min(totalPages, currentPage + buffer);
+	// All pages for sidebar
+	const allPages = $derived(() => {
 		const pages: number[] = [];
-		for (let i = start; i <= end; i++) {
+		for (let i = 1; i <= totalPages; i++) {
 			pages.push(i);
 		}
 		return pages;
@@ -105,10 +102,8 @@
 			// Load first page preview
 			await renderPage(1);
 
-			// Pre-load some thumbnails for sidebar
-			if (showSidebar) {
-				loadThumbnailRange(1, Math.min(20, totalPages));
-			}
+			// Pre-load initial thumbnails for sidebar
+			loadThumbnailRange(1, Math.min(THUMBNAIL_BATCH_SIZE, totalPages));
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load PDF';
 			console.error('PDF load error:', err);
@@ -191,10 +186,40 @@
 			renderPage(pageNum);
 			
 			// Load nearby thumbnails for sidebar
-			if (showSidebar) {
-				loadThumbnailRange(Math.max(1, pageNum - 10), Math.min(totalPages, pageNum + 10));
+			loadThumbnailRange(Math.max(1, pageNum - 10), Math.min(totalPages, pageNum + 10));
+			
+			// Scroll thumbnail into view
+			scrollToCurrentPage();
+		}
+	}
+
+	async function scrollToCurrentPage() {
+		await tick();
+		if (sidebarScrollContainer) {
+			const thumbnail = sidebarScrollContainer.querySelector(`[data-page="${currentPage}"]`);
+			if (thumbnail) {
+				thumbnail.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			}
 		}
+	}
+
+	// Handle sidebar scroll to load visible thumbnails
+	function handleSidebarScroll(e: Event) {
+		const container = e.target as HTMLDivElement;
+		const scrollTop = container.scrollTop;
+		const clientHeight = container.clientHeight;
+		
+		// Calculate which pages are currently visible
+		const thumbnailHeight = 160; // approximate height of each thumbnail item
+		const startPage = Math.floor(scrollTop / thumbnailHeight) + 1;
+		const endPage = Math.min(totalPages, Math.ceil((scrollTop + clientHeight) / thumbnailHeight) + 2);
+		
+		// Load thumbnails that are about to be visible
+		loadThumbnailRange(Math.max(1, startPage - 2), Math.min(totalPages, endPage + 2));
+	}
+
+	function toggleSidebar() {
+		sidebarVisible = !sidebarVisible;
 	}
 
 	function nextPage() {
@@ -298,11 +323,20 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="flex flex-col h-full bg-surface-950 rounded-2xl overflow-hidden border border-surface-800">
+<div class="flex flex-col h-full min-h-0 bg-surface-950 rounded-2xl overflow-hidden border border-surface-800">
 	<!-- Toolbar -->
 	<div class="flex items-center justify-between px-4 py-2 bg-surface-900/80 border-b border-surface-800">
-		<!-- Left: File info -->
+		<!-- Left: File info + sidebar toggle -->
 		<div class="flex items-center gap-3">
+			<!-- Sidebar toggle -->
+			<button
+				onclick={toggleSidebar}
+				class="p-1.5 rounded-lg transition-colors {sidebarVisible ? 'bg-surface-700 text-surface-200' : 'text-surface-400 hover:text-surface-200 hover:bg-surface-700'}"
+				title="{sidebarVisible ? 'Hide' : 'Show'} sidebar"
+			>
+				<Sidebar class="h-4 w-4" />
+			</button>
+			
 			{#if onClose}
 				<button
 					onclick={onClose}
@@ -425,42 +459,71 @@
 	{/if}
 
 	<!-- Main content area -->
-	<div class="flex-1 flex overflow-hidden">
-		<!-- Sidebar with thumbnails (only for smaller documents) -->
-		{#if showSidebar}
-			<div class="w-48 flex-shrink-0 bg-surface-900/50 border-r border-surface-800 overflow-y-auto hidden lg:block">
-				<div class="p-2 space-y-2">
-					{#each sidebarPages() as pageNum}
-						{@const thumb = thumbnailCache.get(pageNum)}
-						<button
-							onclick={() => {
-								goToPage(pageNum);
-								if (isPageSelectionTool) togglePageSelection(pageNum);
-							}}
-							class="relative w-full rounded-lg overflow-hidden border-2 transition-all
-								{currentPage === pageNum && viewMode === 'single'
-									? 'border-accent-start ring-2 ring-accent-start/30'
-									: selectedPages.has(pageNum)
-										? 'border-green-500 ring-2 ring-green-500/30'
-										: 'border-surface-700 hover:border-surface-500'}"
-						>
-							{#if thumb}
-								<img src={thumb} alt="Page {pageNum}" class="w-full" />
-							{:else}
-								<div class="aspect-[3/4] bg-surface-800 animate-pulse flex items-center justify-center">
-									<Loader2 class="h-4 w-4 animate-spin text-surface-600" />
+	<div class="flex-1 flex overflow-hidden min-h-0">
+		<!-- macOS Preview-style sidebar with thumbnails -->
+		{#if sidebarVisible}
+			<div 
+				class="w-44 flex-shrink-0 bg-surface-900/70 border-r border-surface-800 flex flex-col overflow-hidden"
+				transition:fly={{ x: -176, duration: 200 }}
+			>
+				<div 
+					bind:this={sidebarScrollContainer}
+					onscroll={handleSidebarScroll}
+					class="flex-1 overflow-y-auto py-3 px-2 scrollbar-thin min-h-0"
+				>
+					<div class="flex flex-col items-center gap-3">
+						{#each allPages() as pageNum}
+							{@const thumb = thumbnailCache.get(pageNum)}
+							<button
+								data-page={pageNum}
+								onclick={() => {
+									goToPage(pageNum);
+									if (isPageSelectionTool) togglePageSelection(pageNum);
+								}}
+								class="group flex flex-col items-center gap-1.5 w-full"
+							>
+								<!-- Thumbnail container with selection highlight -->
+								<div 
+									class="relative rounded-md overflow-hidden transition-all duration-150 
+										{currentPage === pageNum
+											? 'ring-[3px] ring-accent-start shadow-lg shadow-accent-start/30'
+											: selectedPages.has(pageNum)
+												? 'ring-[3px] ring-green-500 shadow-lg shadow-green-500/30'
+												: 'ring-1 ring-surface-700 hover:ring-surface-500 hover:shadow-md'}"
+								>
+									{#if thumb}
+										<img 
+											src={thumb} 
+											alt="Page {pageNum}" 
+											class="w-28 bg-white"
+											draggable="false"
+										/>
+									{:else}
+										<div class="w-28 aspect-[3/4] bg-surface-800 animate-pulse flex items-center justify-center">
+											<Loader2 class="h-4 w-4 animate-spin text-surface-600" />
+										</div>
+									{/if}
+									
+									<!-- Selection checkmark for page tools -->
+									{#if isPageSelectionTool && selectedPages.has(pageNum)}
+										<div class="absolute top-1.5 left-1.5 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center shadow-md">
+											<Check class="h-3 w-3 text-white" />
+										</div>
+									{/if}
 								</div>
-							{/if}
-							<div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium">
-								{pageNum}
-							</div>
-							{#if selectedPages.has(pageNum)}
-								<div class="absolute top-1 left-1 w-5 h-5 bg-green-500 rounded flex items-center justify-center">
-									<Check class="h-3 w-3 text-white" />
-								</div>
-							{/if}
-						</button>
-					{/each}
+								
+								<!-- Page number below thumbnail (macOS Preview style) -->
+								<span 
+									class="text-[11px] font-medium transition-colors
+										{currentPage === pageNum 
+											? 'text-accent-start' 
+											: 'text-surface-500 group-hover:text-surface-300'}"
+								>
+									{pageNum}
+								</span>
+							</button>
+						{/each}
+					</div>
 				</div>
 			</div>
 		{/if}

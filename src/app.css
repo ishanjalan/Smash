@@ -95,6 +95,23 @@ body {
 	@apply bg-surface-600;
 }
 
+/* Thin scrollbar for sidebars */
+.scrollbar-thin::-webkit-scrollbar {
+	width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+	@apply bg-transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+	@apply bg-surface-700/50 rounded-full;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+	@apply bg-surface-600;
+}
+
 /* Animation keyframes */
 @keyframes pulse-glow {
 	0%,
