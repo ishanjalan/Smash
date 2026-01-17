@@ -303,7 +303,7 @@
 			{#if hasItems}
 				<!-- Workspace Mode -->
 				<div 
-					class="min-h-[calc(100vh-200px)]"
+					class="h-[calc(100vh-180px)]"
 					in:fade={{ duration: 200 }}
 				>
 					<Workspace />
