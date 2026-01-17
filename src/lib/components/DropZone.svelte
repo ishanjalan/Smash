@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { Upload, FileText, Image } from 'lucide-svelte';
-	import { open } from '@tauri-apps/plugin-dialog';
-	import { readFile } from '@tauri-apps/plugin-fs';
 	import { pdfs, TOOLS } from '$lib/stores/pdfs.svelte';
 
 	let isDragging = $state(false);
@@ -51,40 +49,18 @@
 		}
 	}
 
-	async function openFilePicker() {
-		try {
-			const filters = isImageTool
-				? [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
-				: [{ name: 'PDF', extensions: ['pdf'] }];
-			
-			const result = await open({
-				multiple: true,
-				filters,
-				title: isImageTool ? 'Select Images' : 'Select PDF Files'
-			});
-			
-			if (result) {
-				const paths = Array.isArray(result) ? result : [result];
-				
-				// Read files from paths and add them
-				for (const filePath of paths) {
-					const fileName = filePath.split(/[/\\]/).pop() || 'file';
-					const ext = fileName.split('.').pop()?.toLowerCase() || '';
-					const data = await readFile(filePath);
-					
-					// Determine MIME type
-					let mimeType = 'application/pdf';
-					if (['jpg', 'jpeg'].includes(ext)) mimeType = 'image/jpeg';
-					else if (ext === 'png') mimeType = 'image/png';
-					else if (ext === 'webp') mimeType = 'image/webp';
-					
-					const file = new File([data], fileName, { type: mimeType });
-					await pdfs.addFiles([file] as unknown as FileList);
-				}
-			}
-		} catch (err) {
-			console.error('Failed to open file dialog:', err);
+	function openFilePicker() {
+		fileInput?.click();
+	}
+
+	async function handleFileInput(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const files = target.files;
+		if (files && files.length > 0) {
+			await pdfs.addFiles(files);
 		}
+		// Reset input so the same file can be selected again
+		target.value = '';
 	}
 </script>
 
@@ -105,6 +81,7 @@
 		accept={acceptedFormats}
 		multiple
 		class="hidden"
+		onchange={handleFileInput}
 	/>
 
 	<div

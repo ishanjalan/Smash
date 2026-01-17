@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { pdfs, TOOLS, TOOL_CATEGORIES, COMPRESSION_PRESETS, DPI_OPTIONS, IMAGE_FORMAT_OPTIONS, type PDFTool } from '$lib/stores/pdfs.svelte';
 	import { processFiles } from '$lib/utils/pdf';
+	import { isGhostscriptReady, onInitStart, onInitComplete } from '$lib/utils/ghostscript';
+	import { onMount, onDestroy } from 'svelte';
 	import {
 		Minimize2,
 		Layers,
@@ -22,7 +24,8 @@
 		Monitor,
 		BookOpen,
 		Printer,
-		FileCheck
+		FileCheck,
+		Loader2
 	} from 'lucide-svelte';
 	import { slide } from 'svelte/transition';
 
@@ -48,11 +51,40 @@
 	let isExpanded = $state(false);
 	let isProcessing = $state(false);
 	let showAllTools = $state(false);
+	let isLoadingWasm = $state(false);
 
 	const pendingCount = $derived(pdfs.items.filter(i => i.status === 'pending').length);
 	const hasItems = $derived(pdfs.items.length > 0);
 	const canProcess = $derived(pendingCount > 0);
 	const isAnyProcessing = $derived(pdfs.items.some(i => i.status === 'processing'));
+
+	// Tools that need settings to be configured before processing
+	const toolsNeedingConfig = ['protect', 'unlock', 'watermark', 'split', 'delete-pages'];
+
+	// Auto-expand settings when a tool that needs configuration is selected
+	$effect(() => {
+		if (toolsNeedingConfig.includes(pdfs.settings.tool)) {
+			isExpanded = true;
+		}
+	});
+
+	// WASM loading state callbacks
+	let unsubStart: (() => void) | undefined;
+	let unsubComplete: (() => void) | undefined;
+
+	onMount(() => {
+		unsubStart = onInitStart(() => {
+			isLoadingWasm = true;
+		});
+		unsubComplete = onInitComplete(() => {
+			isLoadingWasm = false;
+		});
+	});
+
+	onDestroy(() => {
+		unsubStart?.();
+		unsubComplete?.();
+	});
 
 	// Tool-specific requirements
 	const currentTool = $derived(TOOLS.find(t => t.value === pdfs.settings.tool));
@@ -197,6 +229,16 @@
 	<!-- Expanded Settings -->
 	{#if isExpanded}
 		<div class="border-t border-surface-700/50 pt-4 space-y-4" transition:slide={{ duration: 200 }}>
+			<!-- WASM Loading Indicator -->
+			{#if isLoadingWasm}
+				<div class="flex items-center gap-2 p-3 bg-accent-start/10 border border-accent-start/30 rounded-lg">
+					<Loader2 class="h-4 w-4 animate-spin text-accent-start" />
+					<span class="text-sm text-accent-start font-medium">
+						Downloading compression engine (first time only)...
+					</span>
+				</div>
+			{/if}
+
 			<!-- Compression Settings (Ghostscript presets) -->
 			{#if pdfs.settings.tool === 'compress'}
 				<div class="space-y-2">
@@ -206,10 +248,15 @@
 							{@const PresetIcon = getPresetIcon(key)}
 							<button
 								onclick={() => pdfs.updateSettings({ compressionPreset: key as any })}
-								class="px-3 py-2.5 rounded-lg text-sm transition-all {pdfs.settings.compressionPreset === key
-									? 'bg-accent-start text-white'
-									: 'bg-surface-800 text-surface-400 hover:text-surface-200'}"
+								class="relative px-3 py-2.5 rounded-lg text-sm transition-all {pdfs.settings.compressionPreset === key
+									? 'bg-accent-start text-white ring-2 ring-accent-start/50'
+									: 'bg-surface-800 text-surface-400 hover:text-surface-200 hover:bg-surface-700'}"
 							>
+								{#if preset.recommended}
+									<div class="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded-full">
+										Best
+									</div>
+								{/if}
 								<div class="flex items-center gap-2 justify-center mb-1">
 									<PresetIcon class="h-4 w-4" />
 									<span class="font-medium">{preset.label}</span>

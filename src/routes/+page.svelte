@@ -6,11 +6,10 @@
 	import Workspace from '$lib/components/Workspace.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
-	import SetupWizard from '$lib/components/SetupWizard.svelte';
-	import UpdateChecker from '$lib/components/UpdateChecker.svelte';
 	import Toast, { toast } from '$lib/components/Toast.svelte';
-	import { pdfs, formatBytes, TOOLS } from '$lib/stores/pdfs.svelte';
+	import { pdfs, formatBytes, TOOLS, type PDFItem } from '$lib/stores/pdfs.svelte';
 	import { downloadAllAsZip } from '$lib/utils/download';
+	import { onMount, onDestroy } from 'svelte';
 	import {
 		Shield,
 		Zap,
@@ -25,7 +24,31 @@
 	let showClearConfirm = $state(false);
 	let showShortcuts = $state(false);
 
+	// Undo support for clear all
+	let deletedItems: PDFItem[] = $state([]);
+	let undoTimeout: ReturnType<typeof setTimeout> | null = null;
+
 	const hasItems = $derived(pdfs.items.length > 0);
+	const hasUndownloaded = $derived(
+		pdfs.items.some(i => i.status === 'completed' && (i.processedBlob || i.processedBlobs))
+	);
+
+	// Unsaved work warning
+	function handleBeforeUnload(e: BeforeUnloadEvent) {
+		if (hasUndownloaded) {
+			e.preventDefault();
+			return 'You have processed files that haven\'t been downloaded.';
+		}
+	}
+
+	onMount(() => {
+		window.addEventListener('beforeunload', handleBeforeUnload);
+	});
+
+	onDestroy(() => {
+		window.removeEventListener('beforeunload', handleBeforeUnload);
+		if (undoTimeout) clearTimeout(undoTimeout);
+	});
 
 	function showNotification(message: string, type: 'success' | 'error' | 'info' = 'info') {
 		if (type === 'success') {
@@ -253,18 +276,37 @@
 <ConfirmModal
 	bind:show={showClearConfirm}
 	title="Clear all files?"
-	message="This will remove all files from the list. This action cannot be undone."
+	message="This will remove all files from the list. You can undo this action within 5 seconds."
 	confirmText="Clear All"
 	onconfirm={() => {
-		pdfs.clearAll();
-		showNotification('All files cleared', 'info');
+		// Clear with undo support
+		if (undoTimeout) clearTimeout(undoTimeout);
+		deletedItems = pdfs.clearAllForUndo();
+		
+		toast.info(`Cleared ${deletedItems.length} files`, {
+			duration: 5000,
+			action: { 
+				label: 'Undo', 
+				onClick: () => {
+					if (undoTimeout) clearTimeout(undoTimeout);
+					pdfs.restoreItems(deletedItems);
+					toast.success(`Restored ${deletedItems.length} files`);
+					deletedItems = [];
+				}
+			}
+		});
+		
+		// Permanently delete after 5 seconds
+		undoTimeout = setTimeout(() => {
+			deletedItems.forEach(item => {
+				if (item.originalUrl) URL.revokeObjectURL(item.originalUrl);
+				if (item.processedUrl) URL.revokeObjectURL(item.processedUrl);
+			});
+			deletedItems = [];
+		}, 5000);
 	}}
 />
 
 <KeyboardShortcuts bind:show={showShortcuts} />
-
-<SetupWizard />
-
-<UpdateChecker />
 
 <Toast />

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { pdfs, formatBytes } from '$lib/stores/pdfs.svelte';
-	import { Check, Clock, TrendingDown, Download, X } from 'lucide-svelte';
+	import { Check, Clock, TrendingDown, Download, X, Zap } from 'lucide-svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { downloadAll } from '$lib/utils/download';
+	import AnimatedNumber from './AnimatedNumber.svelte';
 
 	interface Props {
 		onDismiss?: () => void;
@@ -86,13 +87,17 @@
 				<!-- Original Size -->
 				<div class="bg-surface-800/50 rounded-xl p-3 text-center">
 					<div class="text-xs text-surface-500 mb-1">Original</div>
-					<div class="font-semibold text-surface-200 text-sm">{formatBytes(totalOriginalSize)}</div>
+					<div class="font-semibold text-surface-200 text-sm">
+						<AnimatedNumber value={totalOriginalSize} format={formatBytes} />
+					</div>
 				</div>
 
 				<!-- New Size -->
 				<div class="bg-surface-800/50 rounded-xl p-3 text-center">
 					<div class="text-xs text-surface-500 mb-1">New Size</div>
-					<div class="font-semibold text-surface-200 text-sm">{formatBytes(totalProcessedSize)}</div>
+					<div class="font-semibold text-surface-200 text-sm">
+						<AnimatedNumber value={totalProcessedSize} format={formatBytes} />
+					</div>
 				</div>
 
 				<!-- Savings -->
@@ -100,9 +105,9 @@
 					<div class="text-xs text-surface-500 mb-1">Saved</div>
 					<div class="font-semibold text-accent-start text-sm">
 						{#if totalSavings > 0}
-							{savingsPercent}%
+							<AnimatedNumber value={savingsPercent} format={(n) => `${Math.round(n)}%`} />
 						{:else if totalSavings < 0}
-							+{Math.abs(savingsPercent)}%
+							+<AnimatedNumber value={Math.abs(savingsPercent)} format={(n) => `${Math.round(n)}%`} />
 						{:else}
 							0%
 						{/if}

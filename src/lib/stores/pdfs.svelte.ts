@@ -70,34 +70,39 @@ export interface PDFSettings {
 }
 
 // Ghostscript compression presets (real PDF compression, preserves text)
+// User-friendly labels with clear recommendations
 export const COMPRESSION_PRESETS = {
 	screen: { 
-		label: 'Screen', 
-		desc: 'Smallest (72 DPI)', 
+		label: 'Email/Web', 
+		desc: 'Smallest (~70% reduction)', 
 		icon: 'Monitor',
 		dpi: 72,
-		gsFlag: '/screen'
+		gsFlag: '/screen',
+		recommended: false
 	},
 	ebook: { 
-		label: 'Ebook', 
-		desc: 'Balanced (150 DPI)', 
+		label: 'Reading', 
+		desc: 'Balanced (~50% reduction)', 
 		icon: 'BookOpen',
 		dpi: 150,
-		gsFlag: '/ebook'
+		gsFlag: '/ebook',
+		recommended: true
 	},
 	printer: { 
-		label: 'Printer', 
-		desc: 'High quality (300 DPI)', 
+		label: 'Print-Ready', 
+		desc: 'High quality (~30% reduction)', 
 		icon: 'Printer',
 		dpi: 300,
-		gsFlag: '/printer'
+		gsFlag: '/printer',
+		recommended: false
 	},
 	prepress: { 
-		label: 'Prepress', 
+		label: 'Professional', 
 		desc: 'Maximum quality', 
 		icon: 'FileCheck',
 		dpi: 300,
-		gsFlag: '/prepress'
+		gsFlag: '/prepress',
+		recommended: false
 	}
 } as const;
 
@@ -370,6 +375,18 @@ function createPDFStore() {
 				if (item.processedUrl) URL.revokeObjectURL(item.processedUrl);
 			}
 			items = [];
+		},
+
+		// Clear all items but return them for undo
+		clearAllForUndo(): PDFItem[] {
+			const deletedItems = [...items];
+			items = [];
+			return deletedItems;
+		},
+
+		// Restore items (for undo)
+		restoreItems(restoredItems: PDFItem[]) {
+			items = [...restoredItems, ...items];
 		},
 
 		// Reorder items (for merge)
