@@ -717,6 +717,73 @@ function parsePageRangeHelper(rangeStr: string, maxPages: number): number[] {
 	return Array.from(pages).sort((a, b) => a - b);
 }
 
+/**
+ * Convert technical error messages to user-friendly messages
+ */
+function getUserFriendlyError(error: unknown): string {
+	let message = '';
+	
+	if (error instanceof Error) {
+		message = error.message;
+	} else if (typeof error === 'string') {
+		message = error;
+	} else if (error && typeof error === 'object' && 'message' in error) {
+		message = String((error as { message: unknown }).message);
+	}
+	
+	const lowerMessage = message.toLowerCase();
+	
+	// Password errors
+	if (lowerMessage.includes('password') || lowerMessage.includes('decrypt') || lowerMessage.includes('encrypted')) {
+		if (lowerMessage.includes('incorrect') || lowerMessage.includes('wrong') || lowerMessage.includes('invalid')) {
+			return 'Incorrect password. Please check your password and try again.';
+		}
+		return 'This PDF is password-protected. Please enter the correct password.';
+	}
+	
+	// File format errors
+	if (lowerMessage.includes('invalid pdf') || lowerMessage.includes('not a pdf') || lowerMessage.includes('parse')) {
+		return 'This file appears to be corrupted or is not a valid PDF. Try re-downloading it.';
+	}
+	
+	// Page range errors
+	if (lowerMessage.includes('page') && (lowerMessage.includes('range') || lowerMessage.includes('out of'))) {
+		return 'Invalid page range. Please check that the page numbers are within the document.';
+	}
+	
+	// No pages selected
+	if (lowerMessage.includes('no pages selected')) {
+		return message; // Already user-friendly
+	}
+	
+	// Memory/size errors
+	if (lowerMessage.includes('memory') || lowerMessage.includes('too large') || lowerMessage.includes('exceeded')) {
+		return 'This file is too large to process. Try a smaller file or reduce the quality settings.';
+	}
+	
+	// Network errors (for WASM loading)
+	if (lowerMessage.includes('network') || lowerMessage.includes('fetch') || lowerMessage.includes('load')) {
+		return 'Failed to load processing engine. Please check your internet connection and try again.';
+	}
+	
+	// Ghostscript errors
+	if (lowerMessage.includes('ghostscript') || lowerMessage.includes('gs')) {
+		return 'Compression engine error. The file may be corrupted or use unsupported features.';
+	}
+	
+	// qpdf errors  
+	if (lowerMessage.includes('qpdf')) {
+		return 'Encryption engine error. The file may be corrupted or already encrypted.';
+	}
+	
+	// Generic fallback with original message if short, otherwise generic
+	if (message.length > 0 && message.length < 100) {
+		return message;
+	}
+	
+	return 'Something went wrong while processing your file. Please try again.';
+}
+
 // ============================================
 // PROCESS QUEUE
 // ============================================
@@ -778,23 +845,25 @@ async function processItem(item: PDFItem) {
 				const pageCount = await getPageCount(item.file);
 				let splitOptions: SplitOptions;
 
-				if (settings.splitMode === 'range') {
-					const pages = settings.splitRange.split('-').map(s => parseInt(s.trim(), 10));
-					splitOptions = {
-						mode: 'range',
-						range: { start: pages[0] || 1, end: pages[1] || pageCount },
-						onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
-					};
-				} else if (settings.splitMode === 'every-n') {
+				if (settings.splitMode === 'every-n') {
 					splitOptions = {
 						mode: 'every-n',
 						everyN: settings.splitEveryN,
 						onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
 					};
 				} else {
+					// Use visual selection (item.selectedPages) if available, otherwise parse text input
+					const selectedPages = item.selectedPages && item.selectedPages.length > 0
+						? item.selectedPages
+						: parsePageRangeHelper(settings.splitRange, pageCount);
+					
+					if (selectedPages.length === 0) {
+						throw new Error('No pages selected. Please select pages to extract.');
+					}
+					
 					splitOptions = {
 						mode: 'extract',
-						pages: parsePageRangeHelper(settings.splitRange, pageCount),
+						pages: selectedPages,
 						onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
 					};
 				}
@@ -811,7 +880,15 @@ async function processItem(item: PDFItem) {
 
 			case 'delete-pages':
 				const deletePageCount = await getPageCount(item.file);
-				const pagesToDelete = parsePageRangeHelper(settings.splitRange, deletePageCount);
+				// Use visual selection (item.selectedPages) if available, otherwise parse text input
+				const pagesToDelete = item.selectedPages && item.selectedPages.length > 0
+					? item.selectedPages
+					: parsePageRangeHelper(settings.splitRange, deletePageCount);
+				
+				if (pagesToDelete.length === 0) {
+					throw new Error('No pages selected. Please select pages to delete.');
+				}
+				
 				result = await deletePages(item.file, {
 					pages: pagesToDelete,
 					onProgress: (p) => pdfs.updateItem(item.id, { progress: p })
@@ -895,18 +972,9 @@ async function processItem(item: PDFItem) {
 		}
 	} catch (error) {
 		console.error('Processing error:', error);
-		// Handle both Error objects and error strings
-		let errorMessage = 'Processing failed';
-		if (error instanceof Error) {
-			errorMessage = error.message;
-		} else if (typeof error === 'string') {
-			errorMessage = error;
-		} else if (error && typeof error === 'object' && 'message' in error) {
-			errorMessage = String((error as { message: unknown }).message);
-		}
 		pdfs.updateItem(item.id, {
 			status: 'error',
-			error: errorMessage
+			error: getUserFriendlyError(error)
 		});
 	}
 }
@@ -947,7 +1015,7 @@ async function processMerge(items: PDFItem[]) {
 		console.error('Merge error:', error);
 		pdfs.updateItem(firstItem.id, {
 			status: 'error',
-			error: error instanceof Error ? error.message : 'Merge failed'
+			error: getUserFriendlyError(error)
 		});
 	}
 }
@@ -988,7 +1056,7 @@ async function processImagesToPDF(items: PDFItem[]) {
 		console.error('Images to PDF error:', error);
 		pdfs.updateItem(firstItem.id, {
 			status: 'error',
-			error: error instanceof Error ? error.message : 'Conversion failed'
+			error: getUserFriendlyError(error)
 		});
 	}
 }

@@ -30,7 +30,30 @@
 	const selectedItem = $derived(selectedItemId ? pdfs.items.find(i => i.id === selectedItemId) : null);
 	const pendingCount = $derived(pdfs.items.filter(i => i.status === 'pending').length);
 	const completedCount = $derived(pdfs.items.filter(i => i.status === 'completed').length);
+	const processingCount = $derived(pdfs.items.filter(i => i.status === 'processing').length);
 	const isAnyProcessing = $derived(pdfs.items.some(i => i.status === 'processing'));
+	const totalItems = $derived(pdfs.items.length);
+	
+	// Batch progress calculation
+	const batchProgress = $derived(() => {
+		if (totalItems === 0) return 0;
+		
+		// Calculate overall progress across all items
+		let totalProgress = 0;
+		for (const item of pdfs.items) {
+			if (item.status === 'completed' || item.status === 'error') {
+				totalProgress += 100;
+			} else if (item.status === 'processing') {
+				totalProgress += item.progress || 0;
+			}
+			// pending items contribute 0
+		}
+		
+		return Math.round(totalProgress / totalItems);
+	});
+	
+	// Current processing item info
+	const currentProcessingItem = $derived(pdfs.items.find(i => i.status === 'processing'));
 
 	// Current tool info
 	const currentTool = $derived(TOOLS.find(t => t.value === pdfs.settings.tool));
@@ -129,13 +152,15 @@
 		{/if}
 
 		<!-- File list -->
-		<div class="flex-1 overflow-y-auto p-2 space-y-1">
+		<div class="flex-1 overflow-y-auto p-2 space-y-1" role="listbox" aria-label="File list">
 			{#each pdfs.items as item (item.id)}
 				{@const StatusIcon = getStatusIcon(item.status)}
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
+					role="option"
+					tabindex="0"
+					aria-selected={selectedItemId === item.id}
 					onclick={() => selectItem(item.id)}
+					onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectItem(item.id)}
 					class="w-full group relative flex items-center gap-3 p-2 rounded-lg transition-all text-left cursor-pointer
 						{selectedItemId === item.id
 							? 'bg-accent-start/20 border border-accent-start/30'
@@ -148,7 +173,7 @@
 
 					<!-- File info -->
 					<div class="flex-1 min-w-0">
-						<p class="text-sm text-surface-200 truncate">{item.name}</p>
+						<p class="text-sm text-surface-200 truncate" title={item.name}>{item.name}</p>
 						<p class="text-xs text-surface-500">
 							{formatBytes(item.originalSize)}
 							{#if item.processedSize}
@@ -167,6 +192,7 @@
 								onclick={(e) => { e.stopPropagation(); handleDownload(item); }}
 								class="p-1 text-surface-400 hover:text-green-400 transition-colors"
 								title="Download"
+								aria-label="Download {item.name}"
 							>
 								<Download class="h-3.5 w-3.5" />
 							</button>
@@ -175,6 +201,7 @@
 							onclick={(e) => { e.stopPropagation(); removeItem(item.id); }}
 							class="p-1 text-surface-400 hover:text-red-400 transition-colors"
 							title="Remove"
+							aria-label="Remove {item.name}"
 						>
 							<X class="h-3.5 w-3.5" />
 						</button>
@@ -190,21 +217,39 @@
 			{/if}
 		</div>
 
+		<!-- Batch Progress Bar (shown when processing multiple files) -->
+		{#if isAnyProcessing && totalItems > 1}
+			<div class="p-3 border-t border-surface-700/50 space-y-2" transition:slide={{ duration: 200 }}>
+				<div class="flex items-center justify-between text-xs">
+					<span class="text-surface-400">
+						Processing {completedCount + processingCount} of {totalItems} files
+					</span>
+					<span class="font-medium text-accent-start">{batchProgress()}%</span>
+				</div>
+				<div class="h-2 bg-surface-800 rounded-full overflow-hidden">
+					<div 
+						class="h-full bg-gradient-to-r from-accent-start to-accent-end transition-all duration-300 ease-out"
+						style="width: {batchProgress()}%"
+					></div>
+				</div>
+				{#if currentProcessingItem}
+					<p class="text-xs text-surface-500 truncate">
+						{currentProcessingItem.progressStage || 'Processing'}: {currentProcessingItem.name}
+					</p>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- Process button -->
-		{#if pendingCount > 0}
+		{#if pendingCount > 0 && !isAnyProcessing}
 			<div class="p-3 border-t border-surface-700/50">
 				<button
 					onclick={handleProcess}
 					disabled={isProcessing || isAnyProcessing}
 					class="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-gradient-to-r from-accent-start to-accent-end text-white shadow-lg shadow-accent-start/30 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
 				>
-					{#if isProcessing || isAnyProcessing}
-						<Loader2 class="h-4 w-4 animate-spin" />
-						Processing...
-					{:else}
-						<Play class="h-4 w-4" fill="currentColor" />
-						Process {pendingCount} File{pendingCount !== 1 ? 's' : ''}
-					{/if}
+					<Play class="h-4 w-4" fill="currentColor" />
+					Process {pendingCount} File{pendingCount !== 1 ? 's' : ''}
 				</button>
 			</div>
 		{/if}
@@ -309,7 +354,7 @@
 
 								<!-- Info -->
 								<div class="p-2">
-									<p class="text-xs text-surface-300 truncate">{item.name}</p>
+									<p class="text-xs text-surface-300 truncate" title={item.name}>{item.name}</p>
 									<p class="text-[10px] text-surface-500">{formatBytes(item.originalSize)}</p>
 								</div>
 
@@ -318,6 +363,7 @@
 									<button
 										onclick={() => removeItem(item.id)}
 										class="p-1 bg-black/50 rounded text-white hover:bg-red-500 transition-colors"
+										aria-label="Remove {item.name}"
 									>
 										<X class="h-3.5 w-3.5" />
 									</button>

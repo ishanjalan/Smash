@@ -25,9 +25,12 @@
 		BookOpen,
 		Printer,
 		FileCheck,
-		Loader2
+		Loader2,
+		MousePointerClick,
+		Type
 	} from 'lucide-svelte';
 	import { slide } from 'svelte/transition';
+	import Tooltip from './Tooltip.svelte';
 
 	const iconMap = {
 		Minimize2,
@@ -52,11 +55,50 @@
 	let isProcessing = $state(false);
 	let showAllTools = $state(false);
 	let isLoadingWasm = $state(false);
+	let useVisualPicker = $state(true); // Default to visual picker for better UX
 
 	const pendingCount = $derived(pdfs.items.filter(i => i.status === 'pending').length);
 	const hasItems = $derived(pdfs.items.length > 0);
 	const canProcess = $derived(pendingCount > 0);
 	const isAnyProcessing = $derived(pdfs.items.some(i => i.status === 'processing'));
+	
+	// Get selected pages from the first pending item (for visual picker)
+	const firstPendingItem = $derived(pdfs.items.find(i => i.status === 'pending'));
+	const visuallySelectedPages = $derived(firstPendingItem?.selectedPages || []);
+	const hasVisualSelection = $derived(visuallySelectedPages.length > 0);
+	const totalPageCount = $derived(firstPendingItem?.pageCount || 0);
+	
+	// Calculate preview for delete operation (pages that will remain)
+	const remainingPagesAfterDelete = $derived(() => {
+		if (!totalPageCount || !hasVisualSelection) return [];
+		const allPages = Array.from({ length: totalPageCount }, (_, i) => i + 1);
+		return allPages.filter(p => !visuallySelectedPages.includes(p));
+	});
+	
+	// Format selected pages for display (e.g., "1-3, 5, 7-9")
+	function formatPageSelection(pages: number[]): string {
+		if (pages.length === 0) return 'None selected';
+		if (pages.length === 1) return `Page ${pages[0]}`;
+		
+		const sorted = [...pages].sort((a, b) => a - b);
+		const ranges: string[] = [];
+		let rangeStart = sorted[0];
+		let rangeEnd = sorted[0];
+		
+		for (let i = 1; i <= sorted.length; i++) {
+			if (i < sorted.length && sorted[i] === rangeEnd + 1) {
+				rangeEnd = sorted[i];
+			} else {
+				ranges.push(rangeStart === rangeEnd ? `${rangeStart}` : `${rangeStart}-${rangeEnd}`);
+				if (i < sorted.length) {
+					rangeStart = sorted[i];
+					rangeEnd = sorted[i];
+				}
+			}
+		}
+		
+		return ranges.join(', ');
+	}
 
 	// Tools that need settings to be configured before processing
 	const toolsNeedingConfig = ['protect', 'unlock', 'watermark', 'split', 'delete-pages'];
@@ -291,17 +333,61 @@
 
 					{#if pdfs.settings.splitMode === 'range' || pdfs.settings.tool === 'delete-pages'}
 						<div class="space-y-2">
-							<label for="split-range" class="text-sm font-medium text-surface-300">
-								{pdfs.settings.tool === 'delete-pages' ? 'Pages to Delete' : 'Page Range'}
-							</label>
-							<input
-								id="split-range"
-								type="text"
-								placeholder="e.g., 1-5 or 1, 3, 5-8"
-								value={pdfs.settings.splitRange}
-								oninput={(e) => pdfs.updateSettings({ splitRange: e.currentTarget.value })}
-								class="w-full px-3 py-2 rounded-lg bg-surface-800 border border-surface-700 text-surface-200 text-sm focus:border-accent-start focus:outline-none"
-							/>
+							<div class="flex items-center justify-between">
+								<label for="split-range" class="text-sm font-medium text-surface-300">
+									{pdfs.settings.tool === 'delete-pages' ? 'Pages to Delete' : 'Page Range'}
+								</label>
+								<!-- Toggle between visual and text input -->
+								<div class="flex items-center gap-1 bg-surface-800 rounded-lg p-0.5">
+									<button
+										onclick={() => useVisualPicker = true}
+										class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all {useVisualPicker
+											? 'bg-accent-start text-white'
+											: 'text-surface-400 hover:text-surface-200'}"
+										title="Click pages in viewer below"
+									>
+										<MousePointerClick class="h-3 w-3" />
+										Visual
+									</button>
+									<button
+										onclick={() => useVisualPicker = false}
+										class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all {!useVisualPicker
+											? 'bg-accent-start text-white'
+											: 'text-surface-400 hover:text-surface-200'}"
+										title="Type page numbers"
+									>
+										<Type class="h-3 w-3" />
+										Text
+									</button>
+								</div>
+							</div>
+							
+							{#if useVisualPicker}
+								<!-- Visual picker info -->
+								<div class="p-3 rounded-lg bg-surface-800/50 border border-surface-700/50">
+									<div class="flex items-center justify-between mb-2">
+										<span class="text-xs text-surface-400">Selected pages:</span>
+										{#if hasVisualSelection}
+											<span class="text-xs font-medium text-accent-start">{visuallySelectedPages.length} page{visuallySelectedPages.length !== 1 ? 's' : ''}</span>
+										{/if}
+									</div>
+									{#if hasVisualSelection}
+										<p class="text-sm font-medium text-surface-200">{formatPageSelection(visuallySelectedPages)}</p>
+									{:else}
+										<p class="text-sm text-surface-500">Click pages in the viewer below to select them</p>
+									{/if}
+								</div>
+							{:else}
+								<!-- Text input -->
+								<input
+									id="split-range"
+									type="text"
+									placeholder="e.g., 1-5 or 1, 3, 5-8"
+									value={pdfs.settings.splitRange}
+									oninput={(e) => pdfs.updateSettings({ splitRange: e.currentTarget.value })}
+									class="w-full px-3 py-2 rounded-lg bg-surface-800 border border-surface-700 text-surface-200 text-sm focus:border-accent-start focus:outline-none"
+								/>
+							{/if}
 						</div>
 					{:else if pdfs.settings.splitMode === 'every-n'}
 						<div class="space-y-2">
@@ -358,7 +444,10 @@
 					</div>
 
 					<div class="space-y-2">
-						<span class="text-sm font-medium text-surface-300">Resolution (DPI)</span>
+						<span class="text-sm font-medium text-surface-300 flex items-center gap-1">
+							Resolution (DPI)
+							<Tooltip text="DPI (Dots Per Inch) controls image quality. 72 is good for screens, 150 for general use, 300 for printing. Higher DPI = larger file size." />
+						</span>
 						<div class="flex gap-2">
 							{#each DPI_OPTIONS as dpi}
 								<button
@@ -450,8 +539,17 @@
 			<!-- Password Protection Settings -->
 			{#if pdfs.settings.tool === 'protect'}
 				<div class="space-y-3">
+					<!-- Encryption info -->
+					<div class="flex items-center gap-2 text-xs text-surface-400">
+						<Lock class="h-3.5 w-3.5 text-green-400" />
+						<span>Uses AES-256 encryption</span>
+						<Tooltip text="AES-256 is the same military-grade encryption used by banks and governments. It's virtually impossible to crack without the password." />
+					</div>
 					<div class="space-y-2">
-						<label for="user-password" class="text-sm font-medium text-surface-300">Password to Open</label>
+						<label for="user-password" class="text-sm font-medium text-surface-300 flex items-center gap-1">
+							Password to Open
+							<Tooltip text="This password will be required every time someone tries to open the PDF." />
+						</label>
 						<input
 							id="user-password"
 							type="password"
@@ -462,7 +560,10 @@
 						/>
 					</div>
 					<div class="space-y-2">
-						<label for="owner-password" class="text-sm font-medium text-surface-300">Owner Password (optional)</label>
+						<label for="owner-password" class="text-sm font-medium text-surface-300 flex items-center gap-1">
+							Owner Password (optional)
+							<Tooltip text="The owner password controls editing permissions. If set differently from the open password, users can view but not edit the PDF. Leave empty to use the same password for both." />
+						</label>
 						<input
 							id="owner-password"
 							type="password"
@@ -490,6 +591,33 @@
 				</div>
 			{/if}
 
+			<!-- Output Preview (for split/delete operations) -->
+			{#if (pdfs.settings.tool === 'split' || pdfs.settings.tool === 'delete-pages') && hasVisualSelection && totalPageCount > 0}
+				<div class="p-3 rounded-lg bg-green-500/10 border border-green-500/30" transition:slide={{ duration: 150 }}>
+					<div class="flex items-start gap-2">
+						<FileCheck class="h-4 w-4 text-green-400 flex-shrink-0 mt-0.5" />
+						<div class="text-xs">
+							<p class="font-medium text-green-400 mb-1">Output Preview</p>
+							{#if pdfs.settings.tool === 'split'}
+								<p class="text-surface-300">
+									New PDF will contain <span class="font-semibold text-green-400">{visuallySelectedPages.length}</span> page{visuallySelectedPages.length !== 1 ? 's' : ''}:
+									<span class="text-surface-400">{formatPageSelection(visuallySelectedPages)}</span>
+								</p>
+							{:else if pdfs.settings.tool === 'delete-pages'}
+								{@const remaining = remainingPagesAfterDelete()}
+								<p class="text-surface-300">
+									After deleting {visuallySelectedPages.length} page{visuallySelectedPages.length !== 1 ? 's' : ''}, 
+									<span class="font-semibold text-green-400">{remaining.length}</span> page{remaining.length !== 1 ? 's' : ''} will remain
+									{#if remaining.length > 0 && remaining.length <= 10}
+										: <span class="text-surface-400">{formatPageSelection(remaining)}</span>
+									{/if}
+								</p>
+							{/if}
+						</div>
+					</div>
+				</div>
+			{/if}
+
 			<!-- Info box -->
 			<div class="p-3 rounded-lg bg-surface-800/50 border border-surface-700/50">
 				<div class="flex items-start gap-2">
@@ -500,11 +628,11 @@
 						{:else if pdfs.settings.tool === 'merge'}
 							Drag to reorder files before merging. The output will contain all pages in the order shown.
 						{:else if pdfs.settings.tool === 'split'}
-							Extract specific pages or split into multiple files. Original file is not modified.
+							Select pages in the viewer below, then click Split to extract them. Original file is not modified.
 						{:else if pdfs.settings.tool === 'rotate'}
 							Rotate all pages in the PDF by the selected angle. Clockwise rotation.
 						{:else if pdfs.settings.tool === 'delete-pages'}
-							Remove specified pages from the PDF. Enter page numbers or ranges to delete.
+							Select pages to delete in the viewer below. Click thumbnails to toggle selection.
 						{:else if pdfs.settings.tool === 'reorder'}
 							Drag pages to rearrange them. The new order will be saved to the output PDF.
 						{:else if pdfs.settings.tool === 'pdf-to-images'}

@@ -165,7 +165,7 @@
 		{
 			icon: Zap,
 			title: 'Lightning Fast',
-			description: 'WASM-powered processing right in your browser'
+			description: 'Instant processing with no uploads or wait times'
 		},
 		{
 			icon: Shield,

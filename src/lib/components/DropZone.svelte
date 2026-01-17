@@ -68,6 +68,7 @@
 	class="relative"
 	role="button"
 	tabindex="0"
+	aria-label={isImageTool ? 'Drop images here or click to browse' : 'Drop PDF files here or click to browse'}
 	ondragenter={handleDragEnter}
 	ondragleave={handleDragLeave}
 	ondragover={handleDragOver}

@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { pdfs, formatBytes, type PDFItem } from '$lib/stores/pdfs.svelte';
-	import { generateThumbnail, getPageCount } from '$lib/utils/pdf';
 	import * as pdfjsLib from 'pdfjs-dist';
 	import {
 		ZoomIn,
 		ZoomOut,
-		RotateCw,
-		Download,
 		ChevronLeft,
 		ChevronRight,
 		Grid3X3,
@@ -15,10 +12,11 @@
 		X,
 		Loader2,
 		FileText,
-		GripVertical
+		ChevronsLeft,
+		ChevronsRight
 	} from 'lucide-svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { fade, fly } from 'svelte/transition';
+	import { fly } from 'svelte/transition';
 
 	interface Props {
 		item: PDFItem;
@@ -26,6 +24,10 @@
 	}
 
 	const { item, onClose }: Props = $props();
+
+	// Constants
+	const THUMBNAILS_PER_PAGE = 50; // Pagination for thumbnail grid
+	const MAX_SIDEBAR_PAGES = 100; // Don't show sidebar for docs larger than this
 
 	// View state
 	let currentPage = $state(1);
@@ -36,14 +38,26 @@
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Page data
-	let thumbnails = $state<Array<{ pageNum: number; dataUrl: string; width: number; height: number }>>([]);
+	// Pagination for thumbnail grid
+	let thumbnailPage = $state(0);
+	const totalThumbnailPages = $derived(Math.ceil(totalPages / THUMBNAILS_PER_PAGE));
+	const thumbnailStartPage = $derived(thumbnailPage * THUMBNAILS_PER_PAGE + 1);
+	const thumbnailEndPage = $derived(Math.min((thumbnailPage + 1) * THUMBNAILS_PER_PAGE, totalPages));
+
+	// Page data - only store loaded thumbnails
+	let thumbnailCache = $state<Map<number, string>>(new Map());
 	let currentPageCanvas = $state<string | null>(null);
 	let pageWidth = $state(0);
 	let pageHeight = $state(0);
 
+	// Track which thumbnails are currently loading
+	let loadingThumbnails = $state<Set<number>>(new Set());
+
 	// PDF document reference
 	let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null;
+
+	// Show sidebar only for smaller documents
+	const showSidebar = $derived(totalPages <= MAX_SIDEBAR_PAGES);
 
 	// Tool-specific behavior
 	const isPageSelectionTool = $derived(
@@ -52,6 +66,29 @@
 	const allowMultiSelect = $derived(
 		['split', 'delete-pages', 'rotate'].includes(pdfs.settings.tool)
 	);
+
+	// Pages to display in current view
+	const visiblePages = $derived(() => {
+		const pages: number[] = [];
+		for (let i = thumbnailStartPage; i <= thumbnailEndPage; i++) {
+			pages.push(i);
+		}
+		return pages;
+	});
+
+	// Sidebar pages (limited)
+	const sidebarPages = $derived(() => {
+		if (!showSidebar) return [];
+		// Show pages around current page
+		const buffer = 10;
+		const start = Math.max(1, currentPage - buffer);
+		const end = Math.min(totalPages, currentPage + buffer);
+		const pages: number[] = [];
+		for (let i = start; i <= end; i++) {
+			pages.push(i);
+		}
+		return pages;
+	});
 
 	async function loadPDF() {
 		isLoading = true;
@@ -68,8 +105,10 @@
 			// Load first page preview
 			await renderPage(1);
 
-			// Load all thumbnails in background
-			loadThumbnails();
+			// Pre-load some thumbnails for sidebar
+			if (showSidebar) {
+				loadThumbnailRange(1, Math.min(20, totalPages));
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load PDF';
 			console.error('PDF load error:', err);
@@ -78,33 +117,47 @@
 		}
 	}
 
-	async function loadThumbnails() {
-		if (!pdfDoc) return;
+	async function loadThumbnail(pageNum: number): Promise<string | null> {
+		if (!pdfDoc || thumbnailCache.has(pageNum) || loadingThumbnails.has(pageNum)) {
+			return thumbnailCache.get(pageNum) || null;
+		}
 
-		const scale = 0.2; // Small thumbnails
-		for (let i = 1; i <= totalPages; i++) {
-			try {
-				const page = await pdfDoc.getPage(i);
-				const viewport = page.getViewport({ scale });
+		loadingThumbnails = new Set([...loadingThumbnails, pageNum]);
 
-				const canvas = document.createElement('canvas');
-				canvas.width = viewport.width;
-				canvas.height = viewport.height;
-				const ctx = canvas.getContext('2d');
+		try {
+			const page = await pdfDoc.getPage(pageNum);
+			const scale = 0.2;
+			const viewport = page.getViewport({ scale });
 
-				if (ctx) {
-					await page.render({ canvasContext: ctx, viewport }).promise;
-					thumbnails = [...thumbnails, {
-						pageNum: i,
-						dataUrl: canvas.toDataURL('image/jpeg', 0.7),
-						width: viewport.width,
-						height: viewport.height
-					}];
-				}
-			} catch (err) {
-				console.error(`Failed to load thumbnail for page ${i}:`, err);
+			const canvas = document.createElement('canvas');
+			canvas.width = viewport.width;
+			canvas.height = viewport.height;
+			const ctx = canvas.getContext('2d');
+
+			if (ctx) {
+				await page.render({ canvasContext: ctx, viewport }).promise;
+				const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+				thumbnailCache = new Map([...thumbnailCache, [pageNum, dataUrl]]);
+				return dataUrl;
+			}
+		} catch (err) {
+			console.error(`Failed to load thumbnail for page ${pageNum}:`, err);
+		} finally {
+			const newLoading = new Set(loadingThumbnails);
+			newLoading.delete(pageNum);
+			loadingThumbnails = newLoading;
+		}
+		return null;
+	}
+
+	async function loadThumbnailRange(start: number, end: number) {
+		const promises: Promise<string | null>[] = [];
+		for (let i = start; i <= end; i++) {
+			if (!thumbnailCache.has(i)) {
+				promises.push(loadThumbnail(i));
 			}
 		}
+		await Promise.all(promises);
 	}
 
 	async function renderPage(pageNum: number) {
@@ -112,7 +165,7 @@
 
 		try {
 			const page = await pdfDoc.getPage(pageNum);
-			const scale = zoom * 1.5; // Base scale for good quality
+			const scale = zoom * 1.5;
 			const viewport = page.getViewport({ scale });
 
 			pageWidth = viewport.width;
@@ -136,6 +189,11 @@
 		if (pageNum >= 1 && pageNum <= totalPages) {
 			currentPage = pageNum;
 			renderPage(pageNum);
+			
+			// Load nearby thumbnails for sidebar
+			if (showSidebar) {
+				loadThumbnailRange(Math.max(1, pageNum - 10), Math.min(totalPages, pageNum + 10));
+			}
 		}
 	}
 
@@ -170,8 +228,6 @@
 			newSelection.add(pageNum);
 		}
 		selectedPages = newSelection;
-
-		// Update item with selected pages
 		pdfs.updateItem(item.id, { selectedPages: Array.from(selectedPages).sort((a, b) => a - b) });
 	}
 
@@ -183,6 +239,21 @@
 	function selectNone() {
 		selectedPages = new Set();
 		pdfs.updateItem(item.id, { selectedPages: [] });
+	}
+
+	function selectRange(start: number, end: number) {
+		const newSelection = new Set(selectedPages);
+		for (let i = start; i <= end; i++) {
+			newSelection.add(i);
+		}
+		selectedPages = newSelection;
+		pdfs.updateItem(item.id, { selectedPages: Array.from(selectedPages).sort((a, b) => a - b) });
+	}
+
+	function goToThumbnailPage(page: number) {
+		thumbnailPage = Math.max(0, Math.min(page, totalThumbnailPages - 1));
+		// Load thumbnails for this page
+		loadThumbnailRange(thumbnailStartPage, thumbnailEndPage);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -203,6 +274,13 @@
 		}
 	}
 
+	// Load thumbnails when switching to thumbnail view or changing page
+	$effect(() => {
+		if (viewMode === 'thumbnails' && totalPages > 0) {
+			loadThumbnailRange(thumbnailStartPage, thumbnailEndPage);
+		}
+	});
+
 	onMount(() => {
 		loadPDF();
 	});
@@ -211,7 +289,6 @@
 		pdfDoc?.destroy();
 	});
 
-	// Re-render when zoom changes
 	$effect(() => {
 		if (pdfDoc && zoom) {
 			renderPage(currentPage);
@@ -264,9 +341,9 @@
 					max={totalPages}
 					value={currentPage}
 					onchange={(e) => goToPage(parseInt(e.currentTarget.value) || 1)}
-					class="w-12 px-2 py-1 rounded bg-surface-800 border border-surface-700 text-surface-200 text-center text-sm focus:border-accent-start focus:outline-none"
+					class="w-14 px-2 py-1 rounded bg-surface-800 border border-surface-700 text-surface-200 text-center text-sm focus:border-accent-start focus:outline-none"
 				/>
-				<span class="text-surface-500">/ {totalPages}</span>
+				<span class="text-surface-500">/ {totalPages.toLocaleString()}</span>
 			</div>
 
 			<button
@@ -322,9 +399,15 @@
 	{#if isPageSelectionTool && viewMode === 'thumbnails'}
 		<div class="flex items-center justify-between px-4 py-2 bg-surface-800/50 border-b border-surface-700/50" transition:fly={{ y: -10, duration: 150 }}>
 			<div class="text-sm text-surface-400">
-				{selectedPages.size} of {totalPages} pages selected
+				{selectedPages.size.toLocaleString()} of {totalPages.toLocaleString()} pages selected
 			</div>
 			<div class="flex items-center gap-2">
+				<button
+					onclick={() => selectRange(thumbnailStartPage, thumbnailEndPage)}
+					class="px-2 py-1 text-xs text-surface-400 hover:text-surface-200 bg-surface-700 hover:bg-surface-600 rounded transition-colors"
+				>
+					Select This Page
+				</button>
 				<button
 					onclick={selectAll}
 					class="px-2 py-1 text-xs text-surface-400 hover:text-surface-200 bg-surface-700 hover:bg-surface-600 rounded transition-colors"
@@ -343,46 +426,44 @@
 
 	<!-- Main content area -->
 	<div class="flex-1 flex overflow-hidden">
-		<!-- Sidebar with thumbnails -->
-		<div class="w-48 flex-shrink-0 bg-surface-900/50 border-r border-surface-800 overflow-y-auto hidden lg:block">
-			<div class="p-2 space-y-2">
-				{#each thumbnails as thumb}
-					<button
-						onclick={() => {
-							goToPage(thumb.pageNum);
-							if (isPageSelectionTool) togglePageSelection(thumb.pageNum);
-						}}
-						class="relative w-full rounded-lg overflow-hidden border-2 transition-all
-							{currentPage === thumb.pageNum && viewMode === 'single'
-								? 'border-accent-start ring-2 ring-accent-start/30'
-								: selectedPages.has(thumb.pageNum)
-									? 'border-green-500 ring-2 ring-green-500/30'
-									: 'border-surface-700 hover:border-surface-500'}"
-					>
-						<img
-							src={thumb.dataUrl}
-							alt="Page {thumb.pageNum}"
-							class="w-full"
-						/>
-						<div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium">
-							{thumb.pageNum}
-						</div>
-						{#if selectedPages.has(thumb.pageNum)}
-							<div class="absolute top-1 left-1 w-5 h-5 bg-green-500 rounded flex items-center justify-center">
-								<Check class="h-3 w-3 text-white" />
+		<!-- Sidebar with thumbnails (only for smaller documents) -->
+		{#if showSidebar}
+			<div class="w-48 flex-shrink-0 bg-surface-900/50 border-r border-surface-800 overflow-y-auto hidden lg:block">
+				<div class="p-2 space-y-2">
+					{#each sidebarPages() as pageNum}
+						{@const thumb = thumbnailCache.get(pageNum)}
+						<button
+							onclick={() => {
+								goToPage(pageNum);
+								if (isPageSelectionTool) togglePageSelection(pageNum);
+							}}
+							class="relative w-full rounded-lg overflow-hidden border-2 transition-all
+								{currentPage === pageNum && viewMode === 'single'
+									? 'border-accent-start ring-2 ring-accent-start/30'
+									: selectedPages.has(pageNum)
+										? 'border-green-500 ring-2 ring-green-500/30'
+										: 'border-surface-700 hover:border-surface-500'}"
+						>
+							{#if thumb}
+								<img src={thumb} alt="Page {pageNum}" class="w-full" />
+							{:else}
+								<div class="aspect-[3/4] bg-surface-800 animate-pulse flex items-center justify-center">
+									<Loader2 class="h-4 w-4 animate-spin text-surface-600" />
+								</div>
+							{/if}
+							<div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium">
+								{pageNum}
 							</div>
-						{/if}
-					</button>
-				{/each}
-
-				{#if thumbnails.length < totalPages}
-					<div class="flex items-center justify-center py-4 text-surface-500">
-						<Loader2 class="h-4 w-4 animate-spin mr-2" />
-						<span class="text-xs">Loading...</span>
-					</div>
-				{/if}
+							{#if selectedPages.has(pageNum)}
+								<div class="absolute top-1 left-1 w-5 h-5 bg-green-500 rounded flex items-center justify-center">
+									<Check class="h-3 w-3 text-white" />
+								</div>
+							{/if}
+						</button>
+					{/each}
+				</div>
 			</div>
-		</div>
+		{/if}
 
 		<!-- Main view -->
 		<div class="flex-1 overflow-auto bg-surface-950 p-4">
@@ -423,52 +504,97 @@
 					{/if}
 				</div>
 			{:else}
-				<!-- Thumbnail grid view -->
-				<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
-					{#each thumbnails as thumb}
-						<button
-							onclick={() => {
-								if (isPageSelectionTool) {
-									togglePageSelection(thumb.pageNum);
-								} else {
-									goToPage(thumb.pageNum);
-									viewMode = 'single';
-								}
-							}}
-							class="relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all bg-white
-								{selectedPages.has(thumb.pageNum)
-									? 'border-green-500 ring-2 ring-green-500/30 scale-[1.02]'
-									: 'border-surface-700 hover:border-surface-500'}"
-						>
-							<img
-								src={thumb.dataUrl}
-								alt="Page {thumb.pageNum}"
-								class="w-full h-full object-contain"
-							/>
-							<div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/70 rounded text-xs text-white font-medium">
-								{thumb.pageNum}
-							</div>
-							{#if isPageSelectionTool}
-								<div class="absolute top-1 left-1">
-									{#if selectedPages.has(thumb.pageNum)}
-										<div class="w-6 h-6 bg-green-500 rounded flex items-center justify-center shadow-lg">
-											<Check class="h-4 w-4 text-white" />
-										</div>
-									{:else}
-										<div class="w-6 h-6 border-2 border-white/60 rounded bg-black/20 group-hover:border-white transition-colors"></div>
-									{/if}
-								</div>
-							{/if}
-						</button>
-					{/each}
+				<!-- Thumbnail grid view with pagination -->
+				<div class="space-y-4">
+					<!-- Pagination header -->
+					{#if totalThumbnailPages > 1}
+						<div class="flex items-center justify-between bg-surface-900/50 rounded-lg p-3">
+							<button
+								onclick={() => goToThumbnailPage(0)}
+								disabled={thumbnailPage === 0}
+								class="p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								title="First page"
+							>
+								<ChevronsLeft class="h-4 w-4" />
+							</button>
+							<button
+								onclick={() => goToThumbnailPage(thumbnailPage - 1)}
+								disabled={thumbnailPage === 0}
+								class="p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								title="Previous"
+							>
+								<ChevronLeft class="h-4 w-4" />
+							</button>
 
-					{#if thumbnails.length < totalPages}
-						{#each Array(totalPages - thumbnails.length) as _, i}
-							<div class="aspect-[3/4] rounded-lg bg-surface-800 animate-pulse flex items-center justify-center">
-								<Loader2 class="h-4 w-4 animate-spin text-surface-600" />
+							<div class="text-sm text-surface-400">
+								Showing pages <span class="font-medium text-surface-200">{thumbnailStartPage.toLocaleString()}</span> - <span class="font-medium text-surface-200">{thumbnailEndPage.toLocaleString()}</span> of {totalPages.toLocaleString()}
 							</div>
-						{/each}
+
+							<button
+								onclick={() => goToThumbnailPage(thumbnailPage + 1)}
+								disabled={thumbnailPage >= totalThumbnailPages - 1}
+								class="p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								title="Next"
+							>
+								<ChevronRight class="h-4 w-4" />
+							</button>
+							<button
+								onclick={() => goToThumbnailPage(totalThumbnailPages - 1)}
+								disabled={thumbnailPage >= totalThumbnailPages - 1}
+								class="p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								title="Last page"
+							>
+								<ChevronsRight class="h-4 w-4" />
+							</button>
+						</div>
 					{/if}
+
+					<!-- Thumbnail grid -->
+					<div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3">
+						{#each visiblePages() as pageNum}
+							{@const thumb = thumbnailCache.get(pageNum)}
+							<button
+								onclick={() => {
+									if (isPageSelectionTool) {
+										togglePageSelection(pageNum);
+									} else {
+										goToPage(pageNum);
+										viewMode = 'single';
+									}
+								}}
+								class="relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all bg-white
+									{selectedPages.has(pageNum)
+										? 'border-green-500 ring-2 ring-green-500/30 scale-[1.02]'
+										: 'border-surface-700 hover:border-surface-500'}"
+							>
+								{#if thumb}
+									<img
+										src={thumb}
+										alt="Page {pageNum}"
+										class="w-full h-full object-contain"
+									/>
+								{:else}
+									<div class="w-full h-full bg-surface-200 animate-pulse flex items-center justify-center">
+										<Loader2 class="h-4 w-4 animate-spin text-surface-400" />
+									</div>
+								{/if}
+								<div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/70 rounded text-xs text-white font-medium">
+									{pageNum}
+								</div>
+								{#if isPageSelectionTool}
+									<div class="absolute top-1 left-1">
+										{#if selectedPages.has(pageNum)}
+											<div class="w-5 h-5 bg-green-500 rounded flex items-center justify-center shadow-lg">
+												<Check class="h-3 w-3 text-white" />
+											</div>
+										{:else}
+											<div class="w-5 h-5 border-2 border-white/60 rounded bg-black/20"></div>
+										{/if}
+									</div>
+								{/if}
+							</button>
+						{/each}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -477,12 +603,12 @@
 	<!-- Bottom status bar -->
 	<div class="flex items-center justify-between px-4 py-2 bg-surface-900/80 border-t border-surface-800 text-xs text-surface-500">
 		<div>
-			{totalPages} page{totalPages !== 1 ? 's' : ''} • {formatBytes(item.originalSize)}
+			{totalPages.toLocaleString()} page{totalPages !== 1 ? 's' : ''} • {formatBytes(item.originalSize)}
 		</div>
 		<div class="flex items-center gap-4">
 			{#if isPageSelectionTool && selectedPages.size > 0}
 				<span class="text-accent-start font-medium">
-					{selectedPages.size} page{selectedPages.size !== 1 ? 's' : ''} selected
+					{selectedPages.size.toLocaleString()} page{selectedPages.size !== 1 ? 's' : ''} selected
 				</span>
 			{/if}
 			<span>Use arrow keys to navigate</span>

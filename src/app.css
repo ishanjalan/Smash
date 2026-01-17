@@ -5,13 +5,13 @@
 	--font-sans: 'Outfit', system-ui, sans-serif;
 	--font-mono: 'JetBrains Mono', monospace;
 
-	/* Custom colors */
+	/* Custom colors - WCAG AA compliant contrast ratios */
 	--color-surface-50: #fafafa;
 	--color-surface-100: #f4f4f5;
 	--color-surface-200: #e4e4e7;
 	--color-surface-300: #d4d4d8;
 	--color-surface-400: #a1a1aa;
-	--color-surface-500: #71717a;
+	--color-surface-500: #8b8b94; /* Brightened for WCAG AA compliance (was #71717a) */
 	--color-surface-600: #52525b;
 	--color-surface-700: #3f3f46;
 	--color-surface-800: #27272a;
