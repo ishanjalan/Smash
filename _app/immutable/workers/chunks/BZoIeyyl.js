@@ -1,0 +1,1 @@
+import{t as e}from"../ghostscript.comlink-5IPh4M52.js";var t=e(((e,t)=>{t.exports={}}));export default t();
