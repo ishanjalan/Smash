@@ -127,17 +127,17 @@
 			}
 		</style>
 
-		<link href="./_app/immutable/entry/start.EAZjW60t.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/Gm6T5-qK.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/start.BJAMcbKb.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/DVnR5iPa.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/C30l7VtQ.js" rel="modulepreload">
-		<link href="./_app/immutable/entry/app.D6zonsXw.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/app.DRMFvunj.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/HclGiUj8.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/xihTtKlq.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/0.C1xIXrbL.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/0.Dy5x6xsQ.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/yLkY203R.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/BO8JfTBS.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/CURtYATL.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/19.hXLQ9Acp.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/19.DqAG2_Dl.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/B3VBw2py.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/Cb_gTIir.js" rel="modulepreload">
 		<link href="./_app/immutable/chunks/xmW6Ag8O.js" rel="modulepreload">
@@ -187,7 +187,7 @@
 			
 			<script>
 				{
-					__sveltekit_w6m6k1 = {
+					__sveltekit_ehy9rl = {
 						base: new URL(".", location).pathname.slice(0, -1),
 						assets: "/Smash"
 					};
@@ -195,8 +195,8 @@
 					const element = document.currentScript.parentElement;
 
 					Promise.all([
-						import("./_app/immutable/entry/start.EAZjW60t.js"),
-						import("./_app/immutable/entry/app.D6zonsXw.js")
+						import("./_app/immutable/entry/start.BJAMcbKb.js"),
+						import("./_app/immutable/entry/app.DRMFvunj.js")
 					]).then(([kit, app]) => {
 						kit.start(app, element, {
 							node_ids: [0, 19],
@@ -266,9 +266,12 @@
 			}
 		</script>
 
-		<!-- GoatCounter analytics (free for open source, no cookies) -->
+		<!-- GoatCounter analytics (free for open source, no cookies).
+		     no_onload: pageviews are sent from the root +layout.svelte instead, so the
+		     route's title is in place first and client-side navigations are counted. -->
 		<script
 			data-goatcounter="https://ishanjalan.goatcounter.com/count"
+			data-goatcounter-settings='{"no_onload": true}'
 			async
 			src="//gc.zgo.at/count.js"
 		></script>
