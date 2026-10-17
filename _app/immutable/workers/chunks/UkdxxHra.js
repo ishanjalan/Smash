@@ -1,0 +1,1 @@
+import{t as e}from"../ghostscript.comlink-JdeCH1tu.js";var t=/* @__PURE__ */ e(((e,t)=>{t.exports={}}));export default t();
