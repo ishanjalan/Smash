@@ -127,16 +127,19 @@
 			}
 		</style>
 
-		<link href="/Smash/_app/immutable/entry/start.CTQVg-cW.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/chunks/91Z2O-S-.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/chunks/DBfgUk-B.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/entry/app.CPJ-xuoO.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/entry/start.D1P7MYKh.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/entry/payload.DSmR2FwN.js" rel="modulepreload">
 		<link href="/Smash/_app/immutable/chunks/CRzLMJPS.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/chunks/xihTtKlq.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/nodes/0.CzLGcwE9.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/chunks/wn07xeSz.js" rel="modulepreload">
-		<link href="/Smash/_app/immutable/chunks/CeYq0DRj.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/Dhjw6Nsd.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/D2-pyROh.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/3GUnGdiQ.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/DA6HV7Bu.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/entry/app.CFvqeinD.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/nodes/0.l3Hqe8Vv.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/CS63i9is.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/gMACNYJb.js" rel="modulepreload">
 		<link href="/Smash/_app/immutable/chunks/-mtMUys-.js" rel="modulepreload">
+		<link href="/Smash/_app/immutable/chunks/g483WDsJ.js" rel="modulepreload">
 		
 		<link href="/Smash/_app/immutable/assets/0.BQ0FGtHs.css" rel="stylesheet">
 	</head>
@@ -165,31 +168,19 @@
 		<div style="display: contents">
 			<script>
 				{
-					__sveltekit_11wxbek = {
+					__sveltekit_19n82zc = {
 						base: "/Smash",
+						version: "1792208796424",
 						assets: "/Smash"
 					};
 
 					const element = document.currentScript.parentElement;
 
-					Promise.all([
-						import("/Smash/_app/immutable/entry/start.CTQVg-cW.js"),
-						import("/Smash/_app/immutable/entry/app.CPJ-xuoO.js")
-					]).then(([kit, app]) => {
+					import("/Smash/_app/immutable/entry/start.D1P7MYKh.js").then(async (kit) => {
+						kit.init(__sveltekit_19n82zc);
+						const app = await import("/Smash/_app/immutable/entry/app.CFvqeinD.js");
 						kit.start(app, element);
 					});
-
-					if ('serviceWorker' in navigator) {
-						const script_url = '/Smash/service-worker.js';
-						const policy = globalThis?.window?.trustedTypes?.createPolicy(
-							'sveltekit-trusted-url',
-							{ createScriptURL(url) { return url; } }
-						);
-						const sanitised = policy?.createScriptURL(script_url) ?? script_url;
-						addEventListener('load', function () {
-							navigator.serviceWorker.register(sanitised);
-						});
-					}
 				}
 			</script>
 		</div>
@@ -220,7 +211,10 @@
 			if ('serviceWorker' in navigator) {
 				window.addEventListener('load', () => {
 					navigator.serviceWorker
-						.register('/Smash/service-worker.js', { scope: '/Smash/' })
+						.register('/Smash/service-worker.js', {
+							type: 'module',
+							scope: '/Smash/',
+						})
 						.then((registration) => {
 							console.log('SW registered:', registration.scope);
 							registration.addEventListener('updatefound', () => {
